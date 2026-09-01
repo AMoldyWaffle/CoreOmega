@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<style>
+html, body { margin:0; padding:0; width:100%; height:100%; background:black; }
+#game { width:100vw; height:100vh; }
+#fullscreen-btn {
+  position: fixed; top: 10px; right: 10px; z-index: 9999;
+  background: rgba(0,0,0,0.6); color: white;
+  border: 1px solid rgba(255,255,255,0.4); border-radius: 6px;
+  padding: 6px 12px; font-size: 13px; cursor: pointer; font-family: sans-serif;
+}
+#fullscreen-btn:hover { background: rgba(255,255,255,0.2); }
+#loading {
+  position: fixed; inset: 0; display: flex; flex-direction: column;
+  align-items: center; justify-content: center; background: black;
+  color: white; font-family: sans-serif; font-size: 16px; z-index: 50;
+}
+#loading-bar-bg { width: 300px; height: 10px; background: #333; border-radius: 5px; margin-top: 16px; }
+#loading-bar { height: 10px; width: 0%; background: #4af; border-radius: 5px; transition: width 0.2s; }
+#loading-text { margin-top: 10px; font-size: 13px; color: #888; }
+</style>
+</head>
+<body>
+<button id="fullscreen-btn" onclick="openFullscreen()">⛶ Fullscreen</button>
+<div id="loading">
+  <div>Loading Mario Kart 64...</div>
+  <div id="loading-bar-bg"><div id="loading-bar"></div></div>
+  <div id="loading-text">Part 1 of 40</div>
+</div>
+<div id="game"></div>
+<script>
+(function() {
+  const highestId = setTimeout(() => {}, 0);
+  for (let i = 0; i < highestId; i++) { clearTimeout(i); clearInterval(i); }
+  if (window._lastBlobUrl) { URL.revokeObjectURL(window._lastBlobUrl); window._lastBlobUrl = null; }
+  if (window.gc) window.gc();
+  if (window.performance && window.performance.clearResourceTimings) window.performance.clearResourceTimings();
+})();
+
+if (window.self === window.top) document.getElementById("fullscreen-btn").style.display = "none";
+const BASE = "https://cdn.jsdelivr.net/gh/AMoldyWaffle/PS2-HTML-ORYX@main/Mario%20Kart%2064%20(USA)/Mario%20Kart%2064%20(USA)_part_";
+const PARTS = [];
+for (let i = 1; i <= 40; i++) PARTS.push(BASE + i.toString().padStart(2, "0") + ".z64");
+async function fetchPart(url, onProgress) {
+  const response = await fetch(url);
+  const contentLength = response.headers.get("Content-Length");
+  const total = contentLength ? parseInt(contentLength) : 0;
+  const reader = response.body.getReader();
+  const chunks = []; let received = 0;
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    chunks.push(value); received += value.length;
+    if (total) onProgress(received / total);
+  }
+  const result = new Uint8Array(received); let offset = 0;
+  for (const chunk of chunks) { result.set(chunk, offset); offset += chunk.length; }
+  return result;
+}
+async function loadROM() {
+  const bar = document.getElementById("loading-bar");
+  const text = document.getElementById("loading-text");
+  try {
+    const buffers = [];
+    for (let i = 0; i < PARTS.length; i++) {
+      text.textContent = `Part ${i + 1} of ${PARTS.length}`;
+      buffers.push(await fetchPart(PARTS[i], p => { bar.style.width = ((i + p) / PARTS.length * 100) + "%"; }));
+    }
+    text.textContent = "Assembling ROM...";
+    const totalLen = buffers.reduce((s, b) => s + b.length, 0);
+    const combined = new Uint8Array(totalLen); let offset = 0;
+    for (const buf of buffers) { combined.set(buf, offset); offset += buf.length; }
+    const blob = new Blob([combined], { type: "application/octet-stream" });
+    window._lastBlobUrl = URL.createObjectURL(blob);
+    buffers.length = 0;
+    combined.fill(0);
+    document.getElementById("loading").style.display = "none";
+    window.EJS_player = "#game"; window.EJS_core = "mupen64plus_next";
+    window.EJS_startOnLoaded = true; window.EJS_gameUrl = window._lastBlobUrl;
+    window.EJS_pathtodata = "https://cdn.jsdelivr.net/gh/AMoldyWaffle/RetroEmulator@main/";
+    const script = document.createElement("script");
+    script.src = window.EJS_pathtodata + "loader.js";
+    document.body.appendChild(script);
+  } catch (e) { document.getElementById("loading").innerHTML = "Failed to load ROM: " + e.message; }
+}
+loadROM();
+function openFullscreen() {
+  window.open(URL.createObjectURL(new Blob([document.documentElement.outerHTML], {type: "text/html"})), "_blank");
+}
+</script>
+</body>
+</html>
