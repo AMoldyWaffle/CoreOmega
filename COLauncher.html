@@ -1,0 +1,427 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>CoreOmega</title>
+<style>
+*{box-sizing:border-box}
+html,body{margin:0;width:100%;height:100%;font-family:Arial,sans-serif;background:#080b12;color:#fff}
+body{overflow:hidden}
+#launcher{height:100%;overflow:auto;padding-bottom:50px;background:
+radial-gradient(circle at 15% 10%,rgba(70,120,255,.18),transparent 32%),
+radial-gradient(circle at 85% 90%,rgba(170,60,255,.14),transparent 35%),#080b12}
+header{text-align:center;padding:52px 20px 24px}
+h1{margin:0;font-size:44px}.subtitle{margin-top:10px;color:#9ba5b7}
+.grid{max-width:1100px;margin:0 auto;padding:0 24px;display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:20px}
+.card{min-height:225px;padding:26px;border:1px solid #252d3d;border-radius:20px;background:#121824;display:flex;flex-direction:column}
+.icon{font-size:48px}.card h2{margin:20px 0 8px}.card p{color:#9ba5b7;flex:1}
+button{border:0;border-radius:11px;padding:12px 18px;background:#527cff;color:#fff;font-weight:bold;font-size:15px;cursor:pointer}
+#player{display:none;position:fixed;inset:0;background:#000}
+#gameFrame{width:100%;height:100%;border:0;background:#000}
+#back{position:fixed;z-index:30;top:14px;left:14px;background:#202738;border:1px solid #3a4355}
+#status{display:none!important;position:fixed;z-index:20;left:90px;right:14px;top:14px;max-height:110px;overflow:auto;
+background:rgba(10,14,22,.92);border:1px solid #30394b;border-radius:9px;padding:9px 12px;
+font:12px monospace;color:#c9d3e5;white-space:pre-wrap}
+</style>
+</head>
+<body>
+
+<section id="launcher">
+<header>
+<h1>Core Omega</h1>
+<div class="subtitle">One Click, Enthralled Experience</div>
+</header>
+
+<div class="grid">
+<div class="card">
+<div class="icon">🔬</div>
+<h2>Half-Life PC</h2>
+<p>Port.</p>
+<button onclick="launch('Half-Life 1 PC')">Play</button>
+</div>
+
+<div class="card">
+<div class="icon">🏎️</div>
+<h2>Mario Kart 64</h2>
+<p>Nintendo 64 emulator.</p>
+<button onclick="launch('Mario Kart 64')">Play</button>
+</div>
+
+<div class="card">
+<div class="icon">📖</div>
+<h2>Paper Mario</h2>
+<p>Nintendo 64 emulator.</p>
+<button onclick="launch('Paper Mario')">Play</button>
+</div>
+
+<div class="card">
+<div class="icon">💥</div>
+<h2>Quake II</h2>
+<p>Playstation 1 emulator.</p>
+<button onclick="launch('Quake II')">Play</button>
+</div>
+</div>
+</section>
+
+<section id="player">
+<button id="back" onclick="goBack()">← Menu</button>
+<div id="status">Ready.</div>
+<iframe id="gameFrame"
+  allow="fullscreen; autoplay; gamepad *"
+  allowfullscreen>
+</iframe>
+</section>
+
+<script>
+const GAMES = {
+  "Half-Life 1 PC": "https://cdn.jsdelivr.net/gh/AMoldyWaffle/CoreOmega@main/Half-Life%201%20PC.html",
+  "Mario Kart 64": "https://cdn.jsdelivr.net/gh/AMoldyWaffle/CoreOmega@main/Mario%20Kart%2064.html",
+  "Paper Mario": "https://cdn.jsdelivr.net/gh/AMoldyWaffle/CoreOmega@main/Paper%20Mario.html",
+  "Quake II": "https://cdn.jsdelivr.net/gh/AMoldyWaffle/CoreOmega@main/Quake%202.html"
+};
+
+let activeBlobURL = null;
+const frame = document.getElementById("gameFrame");
+const statusBox = document.getElementById("status");
+
+function status(msg) {
+  statusBox.textContent += "\n" + msg;
+  statusBox.scrollTop = statusBox.scrollHeight;
+}
+
+window.addEventListener("message", event => {
+  if (event.data && event.data.coreOmegaDiagnostic) {
+    status("[GAME] " + event.data.coreOmegaDiagnostic);
+  }
+});
+
+function halfLifeDisplayCSS() {
+  // CSS only: no startup JavaScript is added to Half-Life.
+  // This avoids changing the engine's initialization sequence.
+  return `<style id="coreomega-half-life-display">
+html,body{
+  width:100%!important;
+  height:100%!important;
+  margin:0!important;
+  padding:0!important;
+  overflow:hidden!important;
+  background:#000!important;
+}
+/* Half-Life's browser port uses a 4:3 game canvas. Scale it up to the
+   largest 4:3 rectangle that fits inside the available viewport. */
+canvas{
+  position:fixed!important;
+  left:50%!important;
+  top:50%!important;
+  margin:0!important;
+  transform:translate(-50%,-50%)!important;
+  width:min(100vw, calc(100vh * 1.3333333333))!important;
+  height:min(100vh, calc(100vw * 0.75))!important;
+  max-width:none!important;
+  max-height:none!important;
+}
+</style>`;
+}
+
+function compatibilityScript() {
+  return `<script>
+(function(){
+  function send(message) {
+    try { parent.postMessage({coreOmegaDiagnostic:String(message)}, "*"); } catch(e) {}
+  }
+
+  /* Temporary Web Storage */
+  function makeStorage() {
+    var data = Object.create(null);
+    var api = {
+      getItem: function(key) {
+        key = String(key);
+        return Object.prototype.hasOwnProperty.call(data, key) ? data[key] : null;
+      },
+      setItem: function(key, value) {
+        data[String(key)] = String(value);
+      },
+      removeItem: function(key) {
+        delete data[String(key)];
+      },
+      clear: function() {
+        data = Object.create(null);
+      },
+      key: function(index) {
+        return Object.keys(data)[index] || null;
+      }
+    };
+    Object.defineProperty(api, "length", {
+      get: function(){ return Object.keys(data).length; }
+    });
+    return api;
+  }
+
+  var local = makeStorage();
+  var session = makeStorage();
+
+  try {
+    Object.defineProperty(window, "localStorage", {
+      configurable:true,
+      get:function(){ return local; }
+    });
+  } catch(e) {
+    send("localStorage shim failed: " + e.message);
+  }
+
+  try {
+    Object.defineProperty(window, "sessionStorage", {
+      configurable:true,
+      get:function(){ return session; }
+    });
+  } catch(e) {
+    send("sessionStorage shim failed: " + e.message);
+  }
+
+  /* Keyboard-only Gamepad fallback */
+  var emptyGamepads = function(){ return []; };
+  try {
+    Object.defineProperty(Navigator.prototype, "getGamepads", {
+      configurable:true,
+      writable:true,
+      value:emptyGamepads
+    });
+  } catch(e) {
+    try {
+      Object.defineProperty(navigator, "getGamepads", {
+        configurable:true,
+        writable:true,
+        value:emptyGamepads
+      });
+    } catch(e2) {
+      send("gamepad shim failed: " + e2.message);
+    }
+  }
+
+  /* Minimal temporary IndexedDB implementation */
+  var databases = Object.create(null);
+
+  function request() {
+    var listeners = {success:[], error:[], upgradeneeded:[]};
+    var req = {
+      result:undefined,
+      error:null,
+      onsuccess:null,
+      onerror:null,
+      onupgradeneeded:null,
+      addEventListener:function(type, fn){
+        if(listeners[type]) listeners[type].push(fn);
+      },
+      removeEventListener:function(){},
+      _fire:function(type){
+        var ev = {target:req};
+        var handler = req["on" + type];
+        if(typeof handler === "function") {
+          try { handler.call(req, ev); } catch(e) {}
+        }
+        listeners[type].forEach(function(fn){
+          try { fn.call(req, ev); } catch(e) {}
+        });
+      }
+    };
+    return req;
+  }
+
+  function makeStore(map) {
+    function operation(fn) {
+      var req = request();
+      setTimeout(function(){
+        try {
+          req.result = fn();
+          req._fire("success");
+        } catch(e) {
+          req.error = e;
+          req._fire("error");
+        }
+      }, 0);
+      return req;
+    }
+
+    return {
+      get:function(key){
+        return operation(function(){ return map.has(key) ? map.get(key) : undefined; });
+      },
+      put:function(value, key){
+        return operation(function(){
+          if(key === undefined && value && value.id !== undefined) key = value.id;
+          if(key === undefined) throw new Error("Key required");
+          map.set(key, value);
+          return key;
+        });
+      },
+      add:function(value, key){
+        return operation(function(){
+          if(key === undefined && value && value.id !== undefined) key = value.id;
+          if(key === undefined) throw new Error("Key required");
+          if(map.has(key)) throw new Error("ConstraintError");
+          map.set(key, value);
+          return key;
+        });
+      },
+      delete:function(key){
+        return operation(function(){ map.delete(key); });
+      },
+      clear:function(){
+        return operation(function(){ map.clear(); });
+      },
+      count:function(){
+        return operation(function(){ return map.size; });
+      }
+    };
+  }
+
+  function makeDatabase(name, version) {
+    var data = databases[name] || (databases[name] = {
+      version:version || 1,
+      stores:Object.create(null)
+    });
+
+    return {
+      name:name,
+      version:data.version,
+      objectStoreNames:{
+        contains:function(storeName){
+          return Object.prototype.hasOwnProperty.call(data.stores, storeName);
+        }
+      },
+      createObjectStore:function(storeName){
+        if(!data.stores[storeName]) data.stores[storeName] = new Map();
+        return makeStore(data.stores[storeName]);
+      },
+      deleteObjectStore:function(storeName){
+        delete data.stores[storeName];
+      },
+      transaction:function(names){
+        if(!Array.isArray(names)) names = [names];
+        return {
+          objectStore:function(storeName){
+            if(!data.stores[storeName]) data.stores[storeName] = new Map();
+            return makeStore(data.stores[storeName]);
+          },
+          oncomplete:null,
+          onerror:null,
+          onabort:null
+        };
+      },
+      close:function(){}
+    };
+  }
+
+  var fakeIndexedDB = {
+    open:function(name, version){
+      var req = request();
+      setTimeout(function(){
+        var existed = !!databases[String(name)];
+        var db = makeDatabase(String(name), version);
+        req.result = db;
+        if(!existed) req._fire("upgradeneeded");
+        req._fire("success");
+      }, 0);
+      return req;
+    },
+    deleteDatabase:function(name){
+      var req = request();
+      setTimeout(function(){
+        delete databases[String(name)];
+        req._fire("success");
+      }, 0);
+      return req;
+    },
+    cmp:function(a,b){ return a === b ? 0 : (a > b ? 1 : -1); }
+  };
+
+  try {
+    Object.defineProperty(window, "indexedDB", {
+      configurable:true,
+      get:function(){ return fakeIndexedDB; }
+    });
+  } catch(e) {
+    send("IndexedDB shim failed: " + e.message);
+  }
+
+  window.addEventListener("error", function(e){
+    send("ERROR: " + (e.message || "unknown") +
+      " at " + (e.filename || "?") +
+      ":" + (e.lineno || "?") +
+      ":" + (e.colno || "?"));
+  });
+
+  window.addEventListener("unhandledrejection", function(e){
+    var reason = e.reason;
+    send("UNHANDLED REJECTION: " +
+      (reason && (reason.stack || reason.message || String(reason)) || "unknown"));
+  });
+
+  send("Compatibility layer installed.");
+})();
+<\/script>`;
+}
+
+async function launch(name) {
+  statusBox.textContent = "Launching " + name + "...";
+  document.getElementById("launcher").style.display = "none";
+  document.getElementById("player").style.display = "block";
+
+  frame.src = "about:blank";
+
+  try {
+    const url = GAMES[name];
+    status("Fetching game page...");
+    const response = await fetch(url, {mode:"cors"});
+
+    if(!response.ok) {
+      throw new Error("HTTP " + response.status);
+    }
+
+    let html = await response.text();
+    const base = url.slice(0, url.lastIndexOf("/") + 1);
+    const injection =
+      '<base href="' + base.replace(/"/g, "&quot;") + '">' +
+      (name === "Half-Life 1 PC" ? halfLifeDisplayCSS() : "") +
+      compatibilityScript();
+
+    if(/<head[^>]*>/i.test(html)) {
+      html = html.replace(/<head([^>]*)>/i, "<head$1>" + injection);
+    } else {
+      html = "<!doctype html><html><head>" + injection +
+        "</head><body>" + html + "</body></html>";
+    }
+
+    if(activeBlobURL) {
+      URL.revokeObjectURL(activeBlobURL);
+      activeBlobURL = null;
+    }
+
+    activeBlobURL = URL.createObjectURL(
+      new Blob([html], {type:"text/html;charset=utf-8"})
+    );
+
+    status("Game page loaded. Starting runtime...");
+    frame.src = activeBlobURL;
+
+  } catch(error) {
+    status("FAILED: " + (error && (error.stack || error.message) || error));
+  }
+}
+
+function goBack() {
+  frame.src = "about:blank";
+
+  if(activeBlobURL) {
+    URL.revokeObjectURL(activeBlobURL);
+    activeBlobURL = null;
+  }
+
+  document.getElementById("player").style.display = "none";
+  document.getElementById("launcher").style.display = "block";
+  statusBox.textContent = "Ready.";
+}
+</script>
+</body>
+</html>
