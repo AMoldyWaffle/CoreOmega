@@ -1,0 +1,743 @@
+```html
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Plants vs. Zombies</title>
+
+<style>
+
+html, body {
+    margin: 0;
+    padding: 0;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    background: #000;
+}
+
+body {
+    position: fixed;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+#wrap {
+    position: relative;
+    width: min(100vw, 133.333vh);
+    height: min(75vh, 75vw);
+    aspect-ratio: 4 / 3;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+#canvas {
+    display: block;
+    width: 100%;
+    height: 100%;
+    max-width: 100vw;
+    max-height: 100vh;
+    outline: none;
+    background: #000;
+    object-fit: contain;
+}
+
+#loading {
+    position: fixed;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-direction: column;
+    gap: 12px;
+    color: white;
+    font: 700 24px system-ui, sans-serif;
+    background: #000;
+    z-index: 5;
+    text-align: center;
+}
+
+#progress {
+    width: min(500px, 80vw);
+    height: 8px;
+}
+
+#status {
+    font-size: 15px;
+    font-weight: 400;
+    opacity: .8;
+    max-width: 80vw;
+}
+
+#fs {
+    position: fixed;
+    right: 12px;
+    bottom: 12px;
+    z-index: 10;
+    padding: 9px 13px;
+    background: #111;
+    color: #fff;
+    border: 1px solid #777;
+    border-radius: 8px;
+    cursor: pointer;
+}
+
+#fs:hover {
+    background: #222;
+}
+
+
+</style>
+</head>
+
+<body>
+
+<div id="loading">
+    <div id="loadingText">Loading Plants vs. Zombies...</div>
+    <progress id="progress" value="0" max="100"></progress>
+    <div id="status">Starting...</div>
+</div>
+
+<div id="wrap">
+    <canvas
+        id="canvas"
+        width="800"
+        height="600"
+        tabindex="0">
+    </canvas>
+</div>
+
+<button id="fs">Fullscreen</button>
+
+<textarea
+    id="pvz-soft-keyboard"
+    style="position:fixed;top:0;left:0;width:1px;height:1px;opacity:0;pointer-events:none;font-size:16px"
+    autocapitalize="off"
+    autocomplete="off"
+    autocorrect="off"
+    enterkeyhint="done"
+    spellcheck="false"></textarea>
+
+<script>
+/*
+ * Plants vs. Zombies WebAssembly launcher
+ *
+ * Files expected in this directory:
+ *
+ *   index.html
+ *   pvz.js
+ *   pvz.wasm
+ *   main.pak.part1
+ *   main.pak.part2
+ *   main.pak.part3
+ *   properties/
+ *
+ * The three main.pak pieces are concatenated directly into
+ * /main.pak inside the Emscripten virtual filesystem.
+ */
+
+const PVZ_BASE =
+    "https://cdn.jsdelivr.net/gh/AMoldyWaffle/PS2-HTML-ORYX@main/PvZ/";
+
+const canvas = document.getElementById("canvas");
+const loading = document.getElementById("loading");
+const loadingText = document.getElementById("loadingText");
+const statusText = document.getElementById("status");
+const progress = document.getElementById("progress");
+
+/*
+ * Emscripten must see Module BEFORE pvz.js is loaded.
+ */
+let readyResolve;
+let readyReject;
+
+window.moduleReadyPromise = new Promise((resolve, reject) => {
+    readyResolve = resolve;
+    readyReject = reject;
+});
+
+var Module = {
+    canvas: canvas,
+
+    /*
+     * Do not let Emscripten look for pvz.wasm relative to
+     * index.html. Explicitly point it at the PvZ directory.
+     */
+    locateFile: function(path) {
+        return PVZ_BASE + path;
+    },
+
+    noInitialRun: true,
+
+    onRuntimeInitialized: function() {
+        console.log("Emscripten runtime initialized.");
+        readyResolve();
+    },
+
+    onAbort: function(reason) {
+        console.error("Emscripten aborted:", reason);
+        readyReject(
+            new Error("Emscripten aborted: " + (reason || "unknown reason"))
+        );
+    },
+
+    print: function(text) {
+        console.log(text);
+    },
+
+    printErr: function(text) {
+        console.warn(text);
+    }
+};
+
+
+/*
+ * Dynamically load pvz.js AFTER Module has been created.
+ */
+function loadPvzJS() {
+    return new Promise((resolve, reject) => {
+        const script = document.createElement("script");
+
+        script.src = PVZ_BASE + "pvz.js";
+
+        script.onload = resolve;
+
+        script.onerror = function() {
+            reject(new Error(
+                "Could not load pvz.js from the PvZ directory."
+            ));
+        };
+
+        document.body.appendChild(script);
+    });
+}
+
+
+/*
+ * Fetch a binary file.
+ *
+ * This uses the GitHub raw file URL rather than trying to make
+ * the browser load the binary through the GitHub HTML page.
+ */
+async function fetchPart(filename, partNumber) {
+
+    const url =
+        "https://raw.githubusercontent.com/" +
+        "AMoldyWaffle/PS2-HTML-ORYX/main/PvZ/" +
+        filename;
+
+    statusText.textContent =
+        "Downloading " + filename + "...";
+
+    const response = await fetch(url, {
+        cache: "no-cache"
+    });
+
+    if (!response.ok) {
+        throw new Error(
+            filename +
+            " failed to download (HTTP " +
+            response.status +
+            ")."
+        );
+    }
+
+    const contentLength =
+        Number(response.headers.get("content-length")) || 0;
+
+    /*
+     * If the server provides a content length, show a useful
+     * per-part progress indicator.
+     */
+    if (contentLength > 0 && response.body) {
+
+        const reader = response.body.getReader();
+
+        const chunks = [];
+        let received = 0;
+
+        while (true) {
+
+            const result = await reader.read();
+
+            if (result.done)
+                break;
+
+            chunks.push(result.value);
+            received += result.value.length;
+
+            const percent =
+                Math.round((received / contentLength) * 100);
+
+            statusText.textContent =
+                "Downloading " +
+                filename +
+                " — " +
+                percent +
+                "%";
+
+            /*
+             * Overall progress:
+             *
+             * part1 = 0-33
+             * part2 = 33-66
+             * part3 = 66-100
+             */
+            const overall =
+                ((partNumber - 1) * 100 + percent) / 3;
+
+            progress.value = overall;
+        }
+
+        const combined = new Uint8Array(received);
+
+        let offset = 0;
+
+        for (const chunk of chunks) {
+            combined.set(chunk, offset);
+            offset += chunk.length;
+        }
+
+        return combined;
+    }
+
+    return new Uint8Array(
+        await response.arrayBuffer()
+    );
+}
+
+
+/*
+ * Make sure a directory exists in the Emscripten filesystem.
+ */
+function mkdirSafe(path) {
+
+    try {
+        Module.FS.mkdir(path);
+    } catch (e) {
+        /*
+         * EEXIST is fine.
+         */
+    }
+}
+
+
+/*
+ * Download part1, part2 and part3 and concatenate them
+ * directly into /main.pak.
+ *
+ * This avoids:
+ *
+ *   part1 + part2 + part3
+ *       ↓
+ *   giant Blob
+ *       ↓
+ *   giant ArrayBuffer
+ *
+ * Instead only one part is held in JavaScript memory at a time.
+ */
+async function buildMainPak() {
+
+    statusText.textContent =
+        "Preparing main.pak...";
+
+    /*
+     * Create the output file.
+     */
+    let stream;
+
+    try {
+        Module.FS.unlink("/main.pak");
+    } catch (e) {
+        /* File doesn't exist yet. */
+    }
+
+    stream = Module.FS.open(
+        "/main.pak",
+        "w+"
+    );
+
+    let position = 0;
+
+    try {
+
+        const parts = [
+            "main.pak.part1",
+            "main.pak.part2",
+            "main.pak.part3"
+        ];
+
+        for (let i = 0; i < parts.length; i++) {
+
+            const filename = parts[i];
+
+            const bytes =
+                await fetchPart(filename, i + 1);
+
+            statusText.textContent =
+                "Combining " +
+                filename +
+                "...";
+
+            /*
+             * Write this piece immediately at the end of
+             * the previous piece.
+             */
+            Module.FS.write(
+                stream,
+                bytes,
+                0,
+                bytes.length,
+                position
+            );
+
+            position += bytes.length;
+
+            /*
+             * Release the JavaScript reference before the
+             * next part is downloaded.
+             */
+            console.log(
+                filename +
+                " written: " +
+                bytes.length +
+                " bytes"
+            );
+        }
+
+    } finally {
+        Module.FS.close(stream);
+    }
+
+    console.log(
+        "main.pak created: " +
+        position +
+        " bytes"
+    );
+
+    statusText.textContent =
+        "main.pak ready (" +
+        (position / 1048576).toFixed(1) +
+        " MB)";
+}
+
+
+/*
+ * Load the properties folder.
+ */
+async function loadProperties() {
+
+    const files = [
+        "properties/Layout.xml",
+        "properties/default.xml",
+        "properties/partner.xml",
+        "properties/partner.xml.sig",
+        "properties/partner_logo.jpg"
+    ];
+
+    mkdirSafe("/properties");
+
+    for (const file of files) {
+
+        statusText.textContent =
+            "Loading " + file + "...";
+
+        const url =
+            "https://raw.githubusercontent.com/" +
+            "AMoldyWaffle/PS2-HTML-ORYX/main/PvZ/" +
+            file;
+
+        const response =
+            await fetch(url, {
+                cache: "no-cache"
+            });
+
+        if (!response.ok) {
+            throw new Error(
+                file +
+                " failed to download (HTTP " +
+                response.status +
+                ")."
+            );
+        }
+
+        const bytes =
+            new Uint8Array(
+                await response.arrayBuffer()
+            );
+
+        Module.FS.writeFile(
+            "/" + file,
+            bytes
+        );
+
+        console.log(
+            file +
+            " loaded: " +
+            bytes.length +
+            " bytes"
+        );
+    }
+}
+
+
+/*
+ * Persistent save filesystem.
+ */
+async function setupSaves() {
+
+    statusText.textContent =
+        "Setting up saves...";
+
+    mkdirSafe("/saves");
+
+    try {
+
+        Module.FS.mount(
+            Module.FS.filesystems.IDBFS,
+            {},
+            "/saves"
+        );
+
+    } catch (e) {
+
+        /*
+         * If the filesystem is already mounted, don't
+         * treat it as fatal.
+         */
+        console.log(
+            "Save filesystem already mounted:",
+            e
+        );
+    }
+
+    await new Promise((resolve) => {
+
+        Module.FS.syncfs(
+            true,
+            function(error) {
+
+                if (error) {
+                    console.warn(
+                        "Initial save sync failed:",
+                        error
+                    );
+                }
+
+                resolve();
+            }
+        );
+
+    });
+}
+
+
+/*
+ * Keep saves synchronized periodically.
+ */
+function setupSaveSync() {
+
+    const sync = function() {
+
+        if (
+            Module &&
+            Module.FS &&
+            Module.FS.syncfs
+        ) {
+
+            Module.FS.syncfs(
+                false,
+                function(error) {
+
+                    if (error) {
+                        console.warn(
+                            "Save sync failed:",
+                            error
+                        );
+                    }
+
+                }
+            );
+        }
+    };
+
+    setInterval(sync, 5000);
+
+    window.addEventListener(
+        "pagehide",
+        sync
+    );
+
+    window.addEventListener(
+        "visibilitychange",
+        function() {
+
+            if (document.hidden)
+                sync();
+
+        }
+    );
+}
+
+
+/*
+ * Keep the original 800x600 PvZ aspect ratio.
+ */
+function resizeCanvas() {
+
+    const scale =
+        Math.min(
+            window.innerWidth / 800,
+            window.innerHeight / 600
+        );
+
+    canvas.style.width =
+        Math.floor(800 * scale) + "px";
+
+    canvas.style.height =
+        Math.floor(600 * scale) + "px";
+}
+
+window.addEventListener(
+    "resize",
+    resizeCanvas
+);
+
+document.addEventListener(
+    "fullscreenchange",
+    resizeCanvas
+);
+
+
+/*
+ * Fullscreen button.
+ */
+document.getElementById("fs").onclick =
+    async function() {
+
+        try {
+
+            if (document.fullscreenElement) {
+
+                await document.exitFullscreen();
+
+            } else {
+
+                await document.documentElement.requestFullscreen();
+
+            }
+
+        } catch (error) {
+
+            console.warn(
+                "Fullscreen failed:",
+                error
+            );
+        }
+
+        resizeCanvas();
+    };
+
+
+/*
+ * Main startup sequence.
+ */
+(async function() {
+
+    try {
+
+        resizeCanvas();
+
+        loadingText.textContent =
+            "Loading game engine...";
+
+        progress.value = 0;
+
+        /*
+         * Start loading pvz.js.
+         */
+        await loadPvzJS();
+
+        /*
+         * Wait until the WebAssembly runtime is initialized.
+         */
+        statusText.textContent =
+            "Loading pvz.wasm...";
+
+        await window.moduleReadyPromise;
+
+        console.log(
+            "WebAssembly runtime ready."
+        );
+
+        /*
+         * Build the virtual main.pak.
+         */
+        loadingText.textContent =
+            "Loading game data...";
+
+        await buildMainPak();
+
+        /*
+         * Load properties/.
+         */
+        await loadProperties();
+
+        /*
+         * Set up persistent saves.
+         */
+        await setupSaves();
+
+        setupSaveSync();
+
+        progress.value = 100;
+
+        statusText.textContent =
+            "Starting Plants vs. Zombies...";
+
+        /*
+         * Give the browser a frame to finish displaying
+         * the loading screen before entering main().
+         */
+        await new Promise(
+            requestAnimationFrame
+        );
+
+        loading.remove();
+
+        canvas.focus();
+
+        /*
+         * Finally start the native game's main().
+         */
+        Module.callMain([]);
+
+    } catch (error) {
+
+        console.error(
+            "PvZ startup failed:",
+            error
+        );
+
+        loadingText.textContent =
+            "Failed to load Plants vs. Zombies";
+
+        statusText.textContent =
+            error &&
+            error.message
+                ? error.message
+                : String(error);
+
+        progress.remove();
+    }
+
+})();
+</script>
+
+</body>
+</html>
+```
