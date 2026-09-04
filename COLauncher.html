@@ -356,38 +356,6 @@ function compatibilityScript() {
       },
       count:function(){
         return operation(function(){ return map.size; });
-      },
-
-      /*
-       * Emscripten's IndexedDB filesystem may ask an object store for an
-       * index. The original CoreOmega compatibility store did not implement
-       * this method, causing:
-       *
-       *     store.index is not a function
-       *
-       * Provide the small subset needed by IDBFS. PvZ itself is still
-       * configured for manual Save/Load, so this is only a compatibility
-       * safeguard for startup probes.
-       */
-      index:function(){
-        var index = {
-          get:function(key){
-            return operation(function(){
-              return map.has(key) ? map.get(key) : undefined;
-            });
-          },
-          count:function(){
-            return operation(function(){ return map.size; });
-          },
-          openCursor:function(){
-            return operation(function(){ return null; });
-          }
-        };
-        return index;
-      },
-
-      createIndex:function(){
-        return this.index();
       }
     };
   }
