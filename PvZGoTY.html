@@ -513,6 +513,32 @@ async function setupSaves() {
 
     mkdirSafe("/saves");
 
+    /*
+     * CoreOmega's compatibility layer supplies a minimal temporary
+     * IndexedDB implementation. Emscripten's IDBFS requires the full
+     * IndexedDB API (including object-store indexes), so mounting IDBFS
+     * inside that compatibility iframe can fail with:
+     *     store.index is not a function
+     *
+     * The manual Save/Load buttons in this launcher export/import the
+     * game's changed files directly, so IDBFS is optional here.
+     */
+    const fakeIndexedDB =
+        window.indexedDB &&
+        typeof window.indexedDB.open === "function" &&
+        typeof window.indexedDB.databases !== "function" &&
+        typeof window.indexedDB.cmp === "function";
+
+    if (fakeIndexedDB) {
+        console.warn(
+            "CoreOmega temporary IndexedDB detected; " +
+            "skipping IDBFS and using manual Save/Load export instead."
+        );
+        statusText.textContent =
+            "Manual Save/Load mode ready...";
+        return;
+    }
+
     try {
 
         Module.FS.mount(
@@ -564,7 +590,13 @@ function setupSaveSync() {
         if (
             Module &&
             Module.FS &&
-            Module.FS.syncfs
+            Module.FS.syncfs &&
+            !(
+                window.indexedDB &&
+                typeof window.indexedDB.open === "function" &&
+                typeof window.indexedDB.databases !== "function" &&
+                typeof window.indexedDB.cmp === "function"
+            )
         ) {
 
             Module.FS.syncfs(
