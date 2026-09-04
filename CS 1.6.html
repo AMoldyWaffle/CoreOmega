@@ -47,17 +47,24 @@ const loadingText = document.getElementById('loading-text');
 const spinner = document.getElementById('spinner');
 
 let activeBlobURL = null;
+let warnedOffline = false;
+
+function showOfflineWarning() {
+  if (warnedOffline) return;
+  warnedOffline = true;
+  const note = document.createElement('div');
+  note.style.cssText =
+    'position:fixed;bottom:10px;left:10px;right:10px;z-index:9999;' +
+    'background:rgba(0,0,0,.75);color:#ffb347;font:12px sans-serif;' +
+    'padding:8px 12px;border-radius:6px;text-align:center;';
+  note.textContent =
+    "Running from a local file: saving/loading won't work here (browser storage is blocked). " +
+    "For full features, host this on GitHub Pages instead.";
+  document.body.appendChild(note);
+}
 
 async function launch() {
-  if (location.protocol === 'file:') {
-    spinner.style.display = 'none';
-    loading.classList.add('error');
-    loadingText.textContent =
-      "This page needs to be opened from your actual website (https://...), " +
-      "not double-clicked as a downloaded file.\n\n" +
-      "Open it via:\nhttps://cdn.jsdelivr.net/gh/AMoldyWaffle/CoreOmega@main/CS%201.6.html";
-    return;
-  }
+  if (location.protocol === 'file:') showOfflineWarning();
 
   try {
     const response = await fetch(GAME_URL, { mode: "cors" });
