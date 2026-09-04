@@ -125,9 +125,9 @@ body {
 </div>
 
 <div id="saveControls">
-    <button id="saveGame">Save Game</button>
-    <button id="loadGame">Load Game</button>
-    <input id="loadFile" type="file" accept=".pvzsave,.json" style="display:none">
+    <button id="saveGame">Save to File</button>
+    <button id="loadGame">Load from File</button>
+    <input id="loadFile" type="file" style="display:none">
 </div>
 <button id="fs">Fullscreen</button>
 
@@ -157,34 +157,6 @@ body {
  * The three main.pak pieces are concatenated directly into
  * /main.pak inside the Emscripten virtual filesystem.
  */
-
-/*
- * CoreOmega can expose an incomplete IndexedDB implementation.
- * Emscripten/pvz.js may detect it and later call openKeyCursor(), which
- * causes: "index.openKeyCursor is not a function".
- *
- * This launcher uses localStorage for its save snapshot, so IndexedDB is
- * not needed. Hide the broken implementation before pvz.js is loaded.
- */
-(function disableBrokenIndexedDB() {
-    try {
-        Object.defineProperty(window, "indexedDB", {
-            configurable: true,
-            get: function() { return undefined; },
-            set: function() {}
-        });
-    } catch (e) {
-        try { window.indexedDB = undefined; } catch (_) {}
-    }
-
-    try {
-        Object.defineProperty(window, "IDBKeyRange", {
-            configurable: true,
-            get: function() { return undefined; },
-            set: function() {}
-        });
-    } catch (e) {}
-})();
 
 const PVZ_BASE =
     "https://cdn.jsdelivr.net/gh/AMoldyWaffle/PS2-HTML-ORYX@main/PvZ/";
@@ -532,84 +504,23 @@ async function loadProperties() {
 
 
 /*
- * Persistent browser RAM save. Avoids IDBFS/IndexedDB compatibility errors.
+ * Persistent save filesystem.
  */
-const PVZ_RAM_SAVE_KEY = "pvz-coreomega-ram-save-v1";
-
-function isAssetPath(path) { return path === "/main.pak" || path.startsWith("/properties/"); }
-
-function snapshotFS() {
-    const files = {};
-    function walk(path) {
-        let names; try { names = Module.FS.readdir(path); } catch(e) { return; }
-        for (const name of names) {
-            if (name === "." || name === "..") continue;
-            const full = path === "/" ? "/" + name : path + "/" + name;
-            if (isAssetPath(full)) continue;
-            try {
-                if (Module.FS.isDir(Module.FS.stat(full).mode)) walk(full);
-                else files[full] = Array.from(Module.FS.readFile(full));
-            } catch(e) { console.warn("Could not snapshot", full, e); }
-        }
-    }
-    walk("/"); return files;
+async function setupSaves() {
+    // Custom file saves only. No IndexedDB, IDBFS, or syncfs.
+    statusText.textContent = "Custom file save mode ready...";
+    mkdirSafe("/saves");
 }
 
-function ensureDir(path) {
-    let cur = "";
-    for (const part of path.split("/").filter(Boolean)) {
-        cur += "/" + part;
-        try { Module.FS.mkdir(cur); } catch(e) {}
-    }
+
+/*
+ * Keep saves synchronized periodically.
+ */
+function setupSaveSync() {
+    // Disabled: the custom file save never uses IndexedDB, IDBFS, or syncfs.
+    return;
 }
 
-function saveRam() {
-    const save = { format:"pvz-ram-save", version:1, created:new Date().toISOString(), files:snapshotFS() };
-    try { localStorage.setItem(PVZ_RAM_SAVE_KEY, JSON.stringify(save)); } catch (e) { console.warn("RAM save storage unavailable:", e); }
-    return Object.keys(save.files).length;
-}
-
-function restoreRam() {
-    let raw = null;
-    try { raw = localStorage.getItem(PVZ_RAM_SAVE_KEY); } catch (e) { console.warn("RAM save storage unavailable:", e); }
-    if (!raw) return 0;
-    const save = JSON.parse(raw);
-    if (!save || save.format !== "pvz-ram-save" || !save.files) throw new Error("Invalid RAM save");
-    let loaded = 0;
-    for (const [path,data] of Object.entries(save.files)) {
-        if (!Array.isArray(data) || isAssetPath(path)) continue;
-        ensureDir(path.substring(0,path.lastIndexOf("/")) || "/");
-        Module.FS.writeFile(path,new Uint8Array(data)); loaded++;
-    }
-    return loaded;
-}
-
-async function exportSaveGame() {
-    const button=document.getElementById("saveGame"); button.disabled=true; button.textContent="Saving...";
-    try {
-        const save={format:"pvz-ram-save",version:1,created:new Date().toISOString(),files:snapshotFS()};
-        try { localStorage.setItem(PVZ_RAM_SAVE_KEY,JSON.stringify(save)); } catch (e) { throw new Error("Browser save storage is unavailable: " + (e.message || e)); }
-        const blob=new Blob([JSON.stringify(save)],{type:"application/json"});
-        const url=URL.createObjectURL(blob), a=document.createElement("a");
-        a.href=url; a.download="plants-vs-zombies-save.pvzsave"; document.body.appendChild(a); a.click(); a.remove();
-        setTimeout(()=>URL.revokeObjectURL(url),1000);
-        alert("Game saved! It will automatically restore when PvZ loads again.");
-    } finally { button.disabled=false; button.textContent="Save Game"; }
-}
-
-async function importSaveGame(file) {
-    const save=JSON.parse(await file.text());
-    if (!save || !save.files) throw new Error("This is not a valid PvZ save file.");
-    try { localStorage.setItem(PVZ_RAM_SAVE_KEY,JSON.stringify({format:"pvz-ram-save",version:1,created:new Date().toISOString(),files:save.files})); } catch (e) { throw new Error("Browser save storage is unavailable: " + (e.message || e)); }
-    alert("Save imported. PvZ will restart and restore it."); location.reload();
-}
-
-document.getElementById("saveGame").onclick=async()=>{try{await exportSaveGame();}catch(e){console.error(e);alert("Could not save the game:\n"+(e.message||e));}};
-document.getElementById("loadGame").onclick=()=>document.getElementById("loadFile").click();
-document.getElementById("loadFile").onchange=async e=>{const f=e.target.files&&e.target.files[0];if(!f)return;try{await importSaveGame(f);}catch(err){console.error(err);alert("Could not load the save:\n"+(err.message||err));}e.target.value="";};
-
-window.addEventListener("pagehide",()=>{try{if(Module&&Module.FS)saveRam();}catch(e){console.warn("Auto-save failed",e);}});
-window.addEventListener("beforeunload",()=>{try{if(Module&&Module.FS)saveRam();}catch(e){}});
 
 /*
  * Keep the original 800x600 PvZ aspect ratio.
@@ -671,52 +582,28 @@ document.getElementById("fs").onclick =
 
 
 /*
- * Manual PC save/load support.
- *
- * Important: this launcher does not assume that the game actually writes
- * its save into /saves. Some native ports write their save files somewhere
- * else in Emscripten's virtual filesystem.
- *
- * Therefore we track files written after the game starts and export those
- * files, while also including everything in the persistent /saves mount.
- * This avoids exporting the very large immutable main.pak game data.
+ * Custom file save/load support.
+ * This is separate from the game's official save system.
+ * No IndexedDB, IDBFS, or syncfs is used.
  */
 const changedSaveFiles = new Set();
 
 function normalizeSavePath(path) {
-    if (typeof path !== "string")
-        return null;
-
-    if (!path.startsWith("/"))
-        path = "/" + path;
-
+    if (typeof path !== "string") return null;
+    if (!path.startsWith("/")) path = "/" + path;
     return path.replace(/\/+/g, "/");
 }
 
 function rememberSavePath(path) {
     path = normalizeSavePath(path);
-
-    if (!path)
-        return;
-
-    // Never include the downloaded game assets in a save file.
-    if (
-        path === "/main.pak" ||
-        path.startsWith("/properties/")
-    ) {
-        return;
-    }
-
+    if (!path || path === "/main.pak" || path.startsWith("/properties/")) return;
     changedSaveFiles.add(path);
 }
 
 function installSaveWriteTracker() {
     const FS = Module.FS;
-
-    if (FS.__pvzSaveTrackerInstalled)
-        return;
-
-    FS.__pvzSaveTrackerInstalled = true;
+    if (FS.__pvzCustomSaveTrackerInstalled) return;
+    FS.__pvzCustomSaveTrackerInstalled = true;
 
     const originalWriteFile = FS.writeFile.bind(FS);
     FS.writeFile = function(path) {
@@ -727,147 +614,72 @@ function installSaveWriteTracker() {
     const originalOpen = FS.open.bind(FS);
     FS.open = function(path, flags) {
         const result = originalOpen.apply(FS, arguments);
-
-        if (
-            typeof flags === "string" &&
-            /[wa+]/.test(flags)
-        ) {
-            rememberSavePath(path);
-        }
-
+        if (typeof flags === "string" && /[wa+]/.test(flags)) rememberSavePath(path);
         return result;
     };
-
-    console.log("PvZ save-file tracker installed.");
 }
 
 function isDirectory(path) {
     return Module.FS.isDir(Module.FS.stat(path).mode);
 }
 
-function addDirectoryFiles(path, output) {
+function collectDirectoryFiles(path, output) {
     let names;
-
-    try {
-        names = Module.FS.readdir(path);
-    } catch (e) {
-        return;
-    }
-
+    try { names = Module.FS.readdir(path); } catch (e) { return; }
     for (const name of names) {
-        if (name === "." || name === "..")
-            continue;
-
+        if (name === "." || name === "..") continue;
         const full = path === "/" ? "/" + name : path + "/" + name;
-
-        if (
-            full === "/main.pak" ||
-            full.startsWith("/properties/")
-        ) {
-            continue;
-        }
-
+        if (full === "/main.pak" || full.startsWith("/properties/")) continue;
         try {
-            if (isDirectory(full)) {
-                addDirectoryFiles(full, output);
-            } else {
-                output[full] =
-                    Array.from(Module.FS.readFile(full));
-            }
+            if (isDirectory(full)) collectDirectoryFiles(full, output);
+            else output[full] = Array.from(Module.FS.readFile(full));
         } catch (e) {
-            console.warn("Could not include save file:", full, e);
+            console.warn("Could not read custom save file:", full, e);
         }
-    }
-}
-
-async function syncSaveFilesystem(populate) {
-    /*
-     * PvZ is intentionally using manual file export/import in CoreOmega.
-     * Do not call Emscripten syncfs here because that would attempt to use
-     * IndexedDB/IDBFS in the compatibility context.
-     */
-    return;
-}
-
-async function exportSaveGame() {
-    const button = document.getElementById("saveGame");
-    button.disabled = true;
-    button.textContent = "Saving...";
-
-    try {
-        // First flush the existing persistent mount.
-        await syncSaveFilesystem(false);
-
-        const files = {};
-
-        // Always include /saves if the game uses the intended persistent mount.
-        addDirectoryFiles("/saves", files);
-
-        // Include files the game created/modified elsewhere.
-        for (const path of changedSaveFiles) {
-            try {
-                if (!isDirectory(path)) {
-                    files[path] =
-                        Array.from(Module.FS.readFile(path));
-                }
-            } catch (e) {
-                console.warn("Tracked save file no longer exists:", path);
-            }
-        }
-
-        const fileCount = Object.keys(files).length;
-
-        const save = {
-            format: "pvz-web-save",
-            version: 2,
-            created: new Date().toISOString(),
-            fileCount: fileCount,
-            files: files
-        };
-
-        const blob = new Blob(
-            [JSON.stringify(save)],
-            { type: "application/json" }
-        );
-
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement("a");
-
-        a.href = url;
-        a.download =
-            "plants-vs-zombies-save-" +
-            new Date().toISOString().replace(/[:.]/g, "-") +
-            ".pvzsave";
-
-        document.body.appendChild(a);
-        a.click();
-        a.remove();
-
-        setTimeout(() => URL.revokeObjectURL(url), 1000);
-
-        alert(
-            "Save exported successfully.\n\n" +
-            "Save files included: " + fileCount + "\n" +
-            "The .pvzsave file was downloaded to your computer."
-        );
-    } finally {
-        button.disabled = false;
-        button.textContent = "Save Game";
     }
 }
 
 function ensureDirectory(path) {
     const parts = path.split("/").filter(Boolean);
     let current = "";
-
     for (const part of parts) {
         current += "/" + part;
+        try { Module.FS.mkdir(current); } catch (e) {}
+    }
+}
 
-        try {
-            Module.FS.mkdir(current);
-        } catch (e) {
-            // Already exists.
+async function exportSaveGame() {
+    const button = document.getElementById("saveGame");
+    button.disabled = true;
+    button.textContent = "Saving...";
+    try {
+        const files = {};
+        collectDirectoryFiles("/saves", files);
+        for (const path of changedSaveFiles) {
+            try {
+                if (!isDirectory(path)) files[path] = Array.from(Module.FS.readFile(path));
+            } catch (e) {}
         }
+
+        const save = {
+            format: "pvz-custom-file-save",
+            version: 1,
+            created: new Date().toISOString(),
+            files: files
+        };
+        const blob = new Blob([JSON.stringify(save)], {type: "application/octet-stream"});
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = "Plants-vs-Zombies-Custom-Save.pvzcustom";
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+        alert("Custom save file created.\n\nFiles saved: " + Object.keys(files).length);
+    } finally {
+        button.disabled = false;
+        button.textContent = "Save to File";
     }
 }
 
@@ -875,95 +687,36 @@ async function importSaveGame(file) {
     const loadButton = document.getElementById("loadGame");
     loadButton.disabled = true;
     loadButton.textContent = "Loading...";
-
     try {
         const save = JSON.parse(await file.text());
-
-        if (
-            !save ||
-            save.format !== "pvz-web-save" ||
-            !save.files ||
-            typeof save.files !== "object"
-        ) {
-            throw new Error(
-                "This is not a valid PvZ save file."
-            );
+        if (!save || save.format !== "pvz-custom-file-save" || !save.files || typeof save.files !== "object") {
+            throw new Error("This is not a valid custom PvZ save file.");
         }
-
         let loaded = 0;
-
         for (const [path, data] of Object.entries(save.files)) {
-            if (
-                typeof path !== "string" ||
-                !Array.isArray(data) ||
-                path === "/main.pak" ||
-                path.startsWith("/properties/")
-            ) {
-                continue;
-            }
-
-            const parent =
-                path.substring(0, path.lastIndexOf("/")) || "/";
-
-            ensureDirectory(parent);
-
-            Module.FS.writeFile(
-                path,
-                new Uint8Array(data)
-            );
-
+            if (typeof path !== "string" || !Array.isArray(data) || path === "/main.pak" || path.startsWith("/properties/")) continue;
+            ensureDirectory(path.substring(0, path.lastIndexOf("/")) || "/");
+            Module.FS.writeFile(path, new Uint8Array(data));
             rememberSavePath(path);
             loaded++;
         }
-
-        await syncSaveFilesystem(false);
-
-        alert(
-            "Save loaded successfully.\n\n" +
-            "Files restored: " + loaded + "\n\n" +
-            "The game will now reload so it can read the restored save."
-        );
-
-        location.reload();
+        alert("Custom save loaded.\n\nFiles restored: " + loaded + "\n\nThe game loader was not changed.");
     } finally {
         loadButton.disabled = false;
-        loadButton.textContent = "Load Game";
+        loadButton.textContent = "Load from File";
     }
 }
 
 document.getElementById("saveGame").onclick = async function() {
-    try {
-        await exportSaveGame();
-    } catch (error) {
-        console.error("Save export failed:", error);
-        alert(
-            "Could not save the game:\n" +
-            (error.message || error)
-        );
-    }
+    try { await exportSaveGame(); }
+    catch (error) { console.error("Custom save failed:", error); alert("Could not save the game:\n" + (error.message || error)); }
 };
-
-document.getElementById("loadGame").onclick = function() {
-    document.getElementById("loadFile").click();
-};
-
-document.getElementById("loadFile").onchange =
-async function(event) {
+document.getElementById("loadGame").onclick = function() { document.getElementById("loadFile").click(); };
+document.getElementById("loadFile").onchange = async function(event) {
     const file = event.target.files && event.target.files[0];
-
-    if (!file)
-        return;
-
-    try {
-        await importSaveGame(file);
-    } catch (error) {
-        console.error("Save import failed:", error);
-        alert(
-            "Could not load the save:\n" +
-            (error.message || error)
-        );
-    }
-
+    if (!file) return;
+    try { await importSaveGame(file); }
+    catch (error) { console.error("Custom save load failed:", error); alert("Could not load the save:\n" + (error.message || error)); }
     event.target.value = "";
 };
 
@@ -1012,14 +765,18 @@ async function(event) {
          */
         await loadProperties();
 
-        /* Restore the previous browser RAM snapshot before starting PvZ. */
-        statusText.textContent = "Restoring saved game...";
-        try {
-            const restored = restoreRam();
-            statusText.textContent = restored ? "Saved game restored..." : "No previous save found...";
-        } catch (e) {
-            console.warn("Could not restore previous RAM save:", e);
-        }
+        /*
+         * Set up persistent saves.
+         */
+        await setupSaves();
+
+        setupSaveSync();
+
+        /*
+         * Track save files from this point onward, after the game's
+         * downloaded assets have already been created.
+         */
+        installSaveWriteTracker();
 
         progress.value = 100;
 
@@ -1042,9 +799,6 @@ async function(event) {
          * Finally start the native game's main().
          */
         Module.callMain([]);
-
-        /* Automatically keep a recent RAM snapshot every 10 seconds. */
-        setInterval(()=>{try{if(Module&&Module.FS)saveRam();}catch(e){}},10000);
 
     } catch (error) {
 
