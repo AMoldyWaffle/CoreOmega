@@ -1,4 +1,3 @@
-```html
 <!doctype html>
 <html lang="en">
 <head>
@@ -73,33 +72,20 @@ body {
     max-width: 80vw;
 }
 
-#fs, #saveControls button {
+#fs {
+    position: fixed;
+    right: 12px;
+    bottom: 12px;
+    z-index: 10;
     padding: 9px 13px;
     background: #111;
     color: #fff;
     border: 1px solid #777;
     border-radius: 8px;
     cursor: pointer;
-    font: 14px system-ui, sans-serif;
 }
 
-#fs {
-    position: fixed;
-    right: 12px;
-    bottom: 12px;
-    z-index: 10;
-}
-
-#saveControls {
-    position: fixed;
-    left: 12px;
-    bottom: 12px;
-    z-index: 10;
-    display: flex;
-    gap: 8px;
-}
-
-#fs:hover, #saveControls button:hover {
+#fs:hover {
     background: #222;
 }
 
@@ -124,11 +110,6 @@ body {
     </canvas>
 </div>
 
-<div id="saveControls">
-    <button id="saveGame">Save to File</button>
-    <button id="loadGame">Load from File</button>
-    <input id="loadFile" type="file" style="display:none">
-</div>
 <button id="fs">Fullscreen</button>
 
 <textarea
@@ -507,9 +488,50 @@ async function loadProperties() {
  * Persistent save filesystem.
  */
 async function setupSaves() {
-    // Custom file saves only. No IndexedDB, IDBFS, or syncfs.
-    statusText.textContent = "Custom file save mode ready...";
+
+    statusText.textContent =
+        "Setting up saves...";
+
     mkdirSafe("/saves");
+
+    try {
+
+        Module.FS.mount(
+            Module.FS.filesystems.IDBFS,
+            {},
+            "/saves"
+        );
+
+    } catch (e) {
+
+        /*
+         * If the filesystem is already mounted, don't
+         * treat it as fatal.
+         */
+        console.log(
+            "Save filesystem already mounted:",
+            e
+        );
+    }
+
+    await new Promise((resolve) => {
+
+        Module.FS.syncfs(
+            true,
+            function(error) {
+
+                if (error) {
+                    console.warn(
+                        "Initial save sync failed:",
+                        error
+                    );
+                }
+
+                resolve();
+            }
+        );
+
+    });
 }
 
 
@@ -517,8 +539,47 @@ async function setupSaves() {
  * Keep saves synchronized periodically.
  */
 function setupSaveSync() {
-    // Disabled: the custom file save never uses IndexedDB, IDBFS, or syncfs.
-    return;
+
+    const sync = function() {
+
+        if (
+            Module &&
+            Module.FS &&
+            Module.FS.syncfs
+        ) {
+
+            Module.FS.syncfs(
+                false,
+                function(error) {
+
+                    if (error) {
+                        console.warn(
+                            "Save sync failed:",
+                            error
+                        );
+                    }
+
+                }
+            );
+        }
+    };
+
+    setInterval(sync, 5000);
+
+    window.addEventListener(
+        "pagehide",
+        sync
+    );
+
+    window.addEventListener(
+        "visibilitychange",
+        function() {
+
+            if (document.hidden)
+                sync();
+
+        }
+    );
 }
 
 
@@ -582,146 +643,6 @@ document.getElementById("fs").onclick =
 
 
 /*
- * Custom file save/load support.
- * This is separate from the game's official save system.
- * No IndexedDB, IDBFS, or syncfs is used.
- */
-const changedSaveFiles = new Set();
-
-function normalizeSavePath(path) {
-    if (typeof path !== "string") return null;
-    if (!path.startsWith("/")) path = "/" + path;
-    return path.replace(/\/+/g, "/");
-}
-
-function rememberSavePath(path) {
-    path = normalizeSavePath(path);
-    if (!path || path === "/main.pak" || path.startsWith("/properties/")) return;
-    changedSaveFiles.add(path);
-}
-
-function installSaveWriteTracker() {
-    const FS = Module.FS;
-    if (FS.__pvzCustomSaveTrackerInstalled) return;
-    FS.__pvzCustomSaveTrackerInstalled = true;
-
-    const originalWriteFile = FS.writeFile.bind(FS);
-    FS.writeFile = function(path) {
-        rememberSavePath(path);
-        return originalWriteFile.apply(FS, arguments);
-    };
-
-    const originalOpen = FS.open.bind(FS);
-    FS.open = function(path, flags) {
-        const result = originalOpen.apply(FS, arguments);
-        if (typeof flags === "string" && /[wa+]/.test(flags)) rememberSavePath(path);
-        return result;
-    };
-}
-
-function isDirectory(path) {
-    return Module.FS.isDir(Module.FS.stat(path).mode);
-}
-
-function collectDirectoryFiles(path, output) {
-    let names;
-    try { names = Module.FS.readdir(path); } catch (e) { return; }
-    for (const name of names) {
-        if (name === "." || name === "..") continue;
-        const full = path === "/" ? "/" + name : path + "/" + name;
-        if (full === "/main.pak" || full.startsWith("/properties/")) continue;
-        try {
-            if (isDirectory(full)) collectDirectoryFiles(full, output);
-            else output[full] = Array.from(Module.FS.readFile(full));
-        } catch (e) {
-            console.warn("Could not read custom save file:", full, e);
-        }
-    }
-}
-
-function ensureDirectory(path) {
-    const parts = path.split("/").filter(Boolean);
-    let current = "";
-    for (const part of parts) {
-        current += "/" + part;
-        try { Module.FS.mkdir(current); } catch (e) {}
-    }
-}
-
-async function exportSaveGame() {
-    const button = document.getElementById("saveGame");
-    button.disabled = true;
-    button.textContent = "Saving...";
-    try {
-        const files = {};
-        collectDirectoryFiles("/saves", files);
-        for (const path of changedSaveFiles) {
-            try {
-                if (!isDirectory(path)) files[path] = Array.from(Module.FS.readFile(path));
-            } catch (e) {}
-        }
-
-        const save = {
-            format: "pvz-custom-file-save",
-            version: 1,
-            created: new Date().toISOString(),
-            files: files
-        };
-        const blob = new Blob([JSON.stringify(save)], {type: "application/octet-stream"});
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement("a");
-        a.href = url;
-        a.download = "Plants-vs-Zombies-Custom-Save.pvzcustom";
-        document.body.appendChild(a);
-        a.click();
-        a.remove();
-        setTimeout(() => URL.revokeObjectURL(url), 1000);
-        alert("Custom save file created.\n\nFiles saved: " + Object.keys(files).length);
-    } finally {
-        button.disabled = false;
-        button.textContent = "Save to File";
-    }
-}
-
-async function importSaveGame(file) {
-    const loadButton = document.getElementById("loadGame");
-    loadButton.disabled = true;
-    loadButton.textContent = "Loading...";
-    try {
-        const save = JSON.parse(await file.text());
-        if (!save || save.format !== "pvz-custom-file-save" || !save.files || typeof save.files !== "object") {
-            throw new Error("This is not a valid custom PvZ save file.");
-        }
-        let loaded = 0;
-        for (const [path, data] of Object.entries(save.files)) {
-            if (typeof path !== "string" || !Array.isArray(data) || path === "/main.pak" || path.startsWith("/properties/")) continue;
-            ensureDirectory(path.substring(0, path.lastIndexOf("/")) || "/");
-            Module.FS.writeFile(path, new Uint8Array(data));
-            rememberSavePath(path);
-            loaded++;
-        }
-        alert("Custom save loaded.\n\nFiles restored: " + loaded + "\n\nThe game loader was not changed.");
-    } finally {
-        loadButton.disabled = false;
-        loadButton.textContent = "Load from File";
-    }
-}
-
-document.getElementById("saveGame").onclick = async function() {
-    try { await exportSaveGame(); }
-    catch (error) { console.error("Custom save failed:", error); alert("Could not save the game:\n" + (error.message || error)); }
-};
-document.getElementById("loadGame").onclick = function() { document.getElementById("loadFile").click(); };
-document.getElementById("loadFile").onchange = async function(event) {
-    const file = event.target.files && event.target.files[0];
-    if (!file) return;
-    try { await importSaveGame(file); }
-    catch (error) { console.error("Custom save load failed:", error); alert("Could not load the save:\n" + (error.message || error)); }
-    event.target.value = "";
-};
-
-
-/*
  * Main startup sequence.
  */
 (async function() {
@@ -772,12 +693,6 @@ document.getElementById("loadFile").onchange = async function(event) {
 
         setupSaveSync();
 
-        /*
-         * Track save files from this point onward, after the game's
-         * downloaded assets have already been created.
-         */
-        installSaveWriteTracker();
-
         progress.value = 100;
 
         statusText.textContent =
@@ -824,4 +739,3 @@ document.getElementById("loadFile").onchange = async function(event) {
 
 </body>
 </html>
-```
