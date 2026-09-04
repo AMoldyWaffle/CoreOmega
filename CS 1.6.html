@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CS 1.6</title>
+<style>
+html, body { margin:0; padding:0; width:100%; height:100%; background:black; }
+#game { width:100vw; height:100vh; border:0; }
+#fullscreen-btn {
+  position: fixed; top: 10px; right: 10px; z-index: 9999;
+  background: rgba(0,0,0,0.6); color: white;
+  border: 1px solid rgba(255,255,255,0.4); border-radius: 6px;
+  padding: 6px 12px; font-size: 13px; cursor: pointer; font-family: sans-serif;
+}
+#fullscreen-btn:hover { background: rgba(255,255,255,0.2); }
+#loading {
+  position: fixed; inset: 0; display: flex; flex-direction: column;
+  align-items: center; justify-content: center; background: black;
+  color: white; font-family: sans-serif; font-size: 14px; z-index: 50;
+  transition: opacity .3s ease;
+}
+#loading.hide { opacity: 0; pointer-events: none; }
+#loading.error { color: #f66; font-size: 13px; text-align: center; padding: 0 20px; white-space: pre-wrap; }
+.spinner {
+  width: 34px; height: 34px; border-radius: 50%;
+  border: 3px solid #333; border-top-color: #f2a93c;
+  animation: spin 0.9s linear infinite; margin-bottom: 14px;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+</style>
+</head>
+<body>
+<button id="fullscreen-btn" onclick="openFullscreen()">&#x26F6; Fullscreen</button>
+<div id="loading">
+  <div class="spinner" id="spinner"></div>
+  <div id="loading-text">Loading CS 1.6&hellip;</div>
+</div>
+<iframe id="game" allow="fullscreen; autoplay; gamepad *" allowfullscreen></iframe>
+
+<script>
+const GAME_URL = "https://cdn.jsdelivr.net/gh/AMoldyWaffle/CoreOmega@main/CStrike1.6/index.html";
+
+const frame = document.getElementById('game');
+const loading = document.getElementById('loading');
+const loadingText = document.getElementById('loading-text');
+const spinner = document.getElementById('spinner');
+
+let activeBlobURL = null;
+
+async function launch() {
+  if (location.protocol === 'file:') {
+    spinner.style.display = 'none';
+    loading.classList.add('error');
+    loadingText.textContent =
+      "This page needs to be opened from your actual website (https://...), " +
+      "not double-clicked as a downloaded file.\n\n" +
+      "Open it via:\nhttps://cdn.jsdelivr.net/gh/AMoldyWaffle/CoreOmega@main/CS%201.6.html";
+    return;
+  }
+
+  try {
+    const response = await fetch(GAME_URL, { mode: "cors" });
+    if (!response.ok) throw new Error("HTTP " + response.status);
+
+    let html = await response.text();
+
+    // jsDelivr (like raw.githubusercontent.com) serves .html as text/plain,
+    // so it won't render if loaded directly. Fetch it as text, inject a
+    // <base> tag so the page's relative bundle.js/asset paths still resolve
+    // against jsDelivr, then load it as a real text/html Blob instead.
+    const base = GAME_URL.slice(0, GAME_URL.lastIndexOf("/") + 1);
+    const injection = '<base href="' + base.replace(/"/g, "&quot;") + '">';
+
+    if (/<head[^>]*>/i.test(html)) {
+      html = html.replace(/<head([^>]*)>/i, "<head$1>" + injection);
+    } else {
+      html = "<!doctype html><html><head>" + injection + "</head><body>" + html + "</body></html>";
+    }
+
+    if (activeBlobURL) {
+      URL.revokeObjectURL(activeBlobURL);
+      activeBlobURL = null;
+    }
+
+    activeBlobURL = URL.createObjectURL(new Blob([html], { type: "text/html;charset=utf-8" }));
+    frame.src = activeBlobURL;
+  } catch (error) {
+    spinner.style.display = 'none';
+    loading.classList.add('error');
+    loadingText.textContent = "Failed to load CS 1.6:\n" + (error && (error.message || error));
+  }
+}
+
+frame.addEventListener('load', () => {
+  if (frame.src === 'about:blank') return;
+  loading.classList.add('hide');
+  setTimeout(() => loading.style.display = 'none', 350);
+});
+
+function openFullscreen() {
+  const el = frame;
+  if (el.requestFullscreen) el.requestFullscreen();
+  else if (el.webkitRequestFullscreen) el.webkitRequestFullscreen();
+  else if (el.msRequestFullscreen) el.msRequestFullscreen();
+}
+
+launch();
+</script>
+</body>
+</html>
