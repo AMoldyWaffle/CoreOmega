@@ -523,11 +523,14 @@ async function setupSaves() {
      * The manual Save/Load buttons in this launcher export/import the
      * game's changed files directly, so IDBFS is optional here.
      */
+    /*
+     * CoreOmega may provide a temporary IndexedDB compatibility layer.
+     * It is not a full IndexedDB implementation and must never be used
+     * with Emscripten IDBFS. The launcher normally avoids installing it
+     * for PvZ, but keep this guard for direct/older CoreOmega launches.
+     */
     const fakeIndexedDB =
-        window.indexedDB &&
-        typeof window.indexedDB.open === "function" &&
-        typeof window.indexedDB.databases !== "function" &&
-        typeof window.indexedDB.cmp === "function";
+        window.__COREOMEGA_INDEXEDDB_SHIM__ === true;
 
     if (fakeIndexedDB) {
         console.warn(
@@ -591,12 +594,7 @@ function setupSaveSync() {
             Module &&
             Module.FS &&
             Module.FS.syncfs &&
-            !(
-                window.indexedDB &&
-                typeof window.indexedDB.open === "function" &&
-                typeof window.indexedDB.databases !== "function" &&
-                typeof window.indexedDB.cmp === "function"
-            )
+            window.__COREOMEGA_INDEXEDDB_SHIM__ !== true
         ) {
 
             Module.FS.syncfs(
