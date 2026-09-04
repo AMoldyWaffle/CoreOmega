@@ -1,3 +1,4 @@
+```html
 <!doctype html>
 <html lang="en">
 <head>
@@ -523,13 +524,14 @@ async function setupSaves() {
      * game's changed files directly, so IDBFS is optional here.
      */
     /*
-     * CoreOmega may provide a temporary IndexedDB compatibility layer.
-     * It is not a full IndexedDB implementation and must never be used
-     * with Emscripten IDBFS. The launcher normally avoids installing it
-     * for PvZ, but keep this guard for direct/older CoreOmega launches.
+     * CoreOmega runs this page in a compatibility iframe where IndexedDB
+     * may be unavailable or intentionally emulated. Do not mount IDBFS here.
+     * The launcher already provides manual Save/Load export/import below.
+     *
+     * Keeping the virtual /saves directory is fine; we simply don't connect
+     * it to browser IndexedDB.
      */
-    const fakeIndexedDB =
-        window.__COREOMEGA_INDEXEDDB_SHIM__ === true;
+    const fakeIndexedDB = true;
 
     if (fakeIndexedDB) {
         console.warn(
@@ -593,7 +595,12 @@ function setupSaveSync() {
             Module &&
             Module.FS &&
             Module.FS.syncfs &&
-            window.__COREOMEGA_INDEXEDDB_SHIM__ !== true
+            !(
+                window.indexedDB &&
+                typeof window.indexedDB.open === "function" &&
+                typeof window.indexedDB.databases !== "function" &&
+                typeof window.indexedDB.cmp === "function"
+            )
         ) {
 
             Module.FS.syncfs(
@@ -801,15 +808,12 @@ function addDirectoryFiles(path, output) {
 }
 
 async function syncSaveFilesystem(populate) {
-    if (!Module || !Module.FS || !Module.FS.syncfs)
-        return;
-
-    await new Promise((resolve, reject) => {
-        Module.FS.syncfs(!!populate, function(error) {
-            if (error) reject(error);
-            else resolve();
-        });
-    });
+    /*
+     * PvZ is intentionally using manual file export/import in CoreOmega.
+     * Do not call Emscripten syncfs here because that would attempt to use
+     * IndexedDB/IDBFS in the compatibility context.
+     */
+    return;
 }
 
 async function exportSaveGame() {
@@ -1094,3 +1098,4 @@ async function(event) {
 
 </body>
 </html>
+```

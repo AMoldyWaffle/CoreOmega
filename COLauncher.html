@@ -356,6 +356,38 @@ function compatibilityScript() {
       },
       count:function(){
         return operation(function(){ return map.size; });
+      },
+
+      /*
+       * Emscripten's IndexedDB filesystem may ask an object store for an
+       * index. The original CoreOmega compatibility store did not implement
+       * this method, causing:
+       *
+       *     store.index is not a function
+       *
+       * Provide the small subset needed by IDBFS. PvZ itself is still
+       * configured for manual Save/Load, so this is only a compatibility
+       * safeguard for startup probes.
+       */
+      index:function(){
+        var index = {
+          get:function(key){
+            return operation(function(){
+              return map.has(key) ? map.get(key) : undefined;
+            });
+          },
+          count:function(){
+            return operation(function(){ return map.size; });
+          },
+          openCursor:function(){
+            return operation(function(){ return null; });
+          }
+        };
+        return index;
+      },
+
+      createIndex:function(){
+        return this.index();
       }
     };
   }
@@ -456,22 +488,6 @@ async function launch(name) {
 
   try {
     const url = GAMES[name];
-
-    /*
-     * Plants vs. Zombies uses Emscripten IDBFS for its save data.
-     * Do NOT put PvZ inside a Blob URL. A Blob document has an opaque
-     * origin, and IndexedDB is denied there in this launch chain:
-     *
-     *     Tech.html -> Blob COLauncher -> Blob PvZ
-     *
-     * Instead, give PvZ its own normal HTTPS origin directly.
-     */
-    if (name === "Plants vs. Zombies GOTY") {
-      status("Opening PvZ in its native HTTPS context...");
-      frame.src = url + (url.includes("?") ? "&" : "?") + "_=" + Date.now();
-      return;
-    }
-
     status("Fetching game page...");
     const response = await fetch(url, {mode:"cors"});
 
