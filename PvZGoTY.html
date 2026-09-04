@@ -158,6 +158,34 @@ body {
  * /main.pak inside the Emscripten virtual filesystem.
  */
 
+/*
+ * CoreOmega can expose an incomplete IndexedDB implementation.
+ * Emscripten/pvz.js may detect it and later call openKeyCursor(), which
+ * causes: "index.openKeyCursor is not a function".
+ *
+ * This launcher uses localStorage for its save snapshot, so IndexedDB is
+ * not needed. Hide the broken implementation before pvz.js is loaded.
+ */
+(function disableBrokenIndexedDB() {
+    try {
+        Object.defineProperty(window, "indexedDB", {
+            configurable: true,
+            get: function() { return undefined; },
+            set: function() {}
+        });
+    } catch (e) {
+        try { window.indexedDB = undefined; } catch (_) {}
+    }
+
+    try {
+        Object.defineProperty(window, "IDBKeyRange", {
+            configurable: true,
+            get: function() { return undefined; },
+            set: function() {}
+        });
+    } catch (e) {}
+})();
+
 const PVZ_BASE =
     "https://cdn.jsdelivr.net/gh/AMoldyWaffle/PS2-HTML-ORYX@main/PvZ/";
 
@@ -537,12 +565,13 @@ function ensureDir(path) {
 
 function saveRam() {
     const save = { format:"pvz-ram-save", version:1, created:new Date().toISOString(), files:snapshotFS() };
-    localStorage.setItem(PVZ_RAM_SAVE_KEY, JSON.stringify(save));
+    try { localStorage.setItem(PVZ_RAM_SAVE_KEY, JSON.stringify(save)); } catch (e) { console.warn("RAM save storage unavailable:", e); }
     return Object.keys(save.files).length;
 }
 
 function restoreRam() {
-    const raw = localStorage.getItem(PVZ_RAM_SAVE_KEY);
+    let raw = null;
+    try { raw = localStorage.getItem(PVZ_RAM_SAVE_KEY); } catch (e) { console.warn("RAM save storage unavailable:", e); }
     if (!raw) return 0;
     const save = JSON.parse(raw);
     if (!save || save.format !== "pvz-ram-save" || !save.files) throw new Error("Invalid RAM save");
@@ -559,7 +588,7 @@ async function exportSaveGame() {
     const button=document.getElementById("saveGame"); button.disabled=true; button.textContent="Saving...";
     try {
         const save={format:"pvz-ram-save",version:1,created:new Date().toISOString(),files:snapshotFS()};
-        localStorage.setItem(PVZ_RAM_SAVE_KEY,JSON.stringify(save));
+        try { localStorage.setItem(PVZ_RAM_SAVE_KEY,JSON.stringify(save)); } catch (e) { throw new Error("Browser save storage is unavailable: " + (e.message || e)); }
         const blob=new Blob([JSON.stringify(save)],{type:"application/json"});
         const url=URL.createObjectURL(blob), a=document.createElement("a");
         a.href=url; a.download="plants-vs-zombies-save.pvzsave"; document.body.appendChild(a); a.click(); a.remove();
@@ -571,7 +600,7 @@ async function exportSaveGame() {
 async function importSaveGame(file) {
     const save=JSON.parse(await file.text());
     if (!save || !save.files) throw new Error("This is not a valid PvZ save file.");
-    localStorage.setItem(PVZ_RAM_SAVE_KEY,JSON.stringify({format:"pvz-ram-save",version:1,created:new Date().toISOString(),files:save.files}));
+    try { localStorage.setItem(PVZ_RAM_SAVE_KEY,JSON.stringify({format:"pvz-ram-save",version:1,created:new Date().toISOString(),files:save.files})); } catch (e) { throw new Error("Browser save storage is unavailable: " + (e.message || e)); }
     alert("Save imported. PvZ will restart and restore it."); location.reload();
 }
 
