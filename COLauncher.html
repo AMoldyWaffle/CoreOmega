@@ -465,10 +465,25 @@ async function launch(name) {
 
     let html = await response.text();
     const base = url.slice(0, url.lastIndexOf("/") + 1);
+    /*
+     * PvZ uses Emscripten's IndexedDB filesystem internally.
+     *
+     * CoreOmega's compatibility IndexedDB shim is intentionally minimal
+     * and does not implement the full IDBObjectStore API (including
+     * store.index()), which causes PvZ to fail with:
+     *
+     *     TypeError: store.index is not a function
+     *
+     * Do NOT inject that shim into the PvZ page. The blob URL inherits
+     * CoreOmega's normal origin, so PvZ can use the browser's real
+     * IndexedDB implementation instead.
+     */
+    const isPvZ = name === "Plants vs. Zombies GOTY";
+
     const injection =
       '<base href="' + base.replace(/"/g, "&quot;") + '">' +
       (name === "Half-Life 1 PC" ? halfLifeDisplayCSS() : "") +
-      compatibilityScript();
+      (isPvZ ? "" : compatibilityScript());
 
     if(/<head[^>]*>/i.test(html)) {
       html = html.replace(/<head([^>]*)>/i, "<head$1>" + injection);
