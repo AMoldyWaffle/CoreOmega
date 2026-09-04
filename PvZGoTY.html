@@ -504,139 +504,83 @@ async function loadProperties() {
 
 
 /*
- * Persistent save filesystem.
+ * Persistent browser RAM save. Avoids IDBFS/IndexedDB compatibility errors.
  */
-async function setupSaves() {
+const PVZ_RAM_SAVE_KEY = "pvz-coreomega-ram-save-v1";
 
-    statusText.textContent =
-        "Setting up saves...";
+function isAssetPath(path) { return path === "/main.pak" || path.startsWith("/properties/"); }
 
-    mkdirSafe("/saves");
-
-    /*
-     * CoreOmega's compatibility layer supplies a minimal temporary
-     * IndexedDB implementation. Emscripten's IDBFS requires the full
-     * IndexedDB API (including object-store indexes), so mounting IDBFS
-     * inside that compatibility iframe can fail with:
-     *     store.index is not a function
-     *
-     * The manual Save/Load buttons in this launcher export/import the
-     * game's changed files directly, so IDBFS is optional here.
-     */
-    /*
-     * CoreOmega runs this page in a compatibility iframe where IndexedDB
-     * may be unavailable or intentionally emulated. Do not mount IDBFS here.
-     * The launcher already provides manual Save/Load export/import below.
-     *
-     * Keeping the virtual /saves directory is fine; we simply don't connect
-     * it to browser IndexedDB.
-     */
-    const fakeIndexedDB = true;
-
-    if (fakeIndexedDB) {
-        console.warn(
-            "CoreOmega temporary IndexedDB detected; " +
-            "skipping IDBFS and using manual Save/Load export instead."
-        );
-        statusText.textContent =
-            "Manual Save/Load mode ready...";
-        return;
+function snapshotFS() {
+    const files = {};
+    function walk(path) {
+        let names; try { names = Module.FS.readdir(path); } catch(e) { return; }
+        for (const name of names) {
+            if (name === "." || name === "..") continue;
+            const full = path === "/" ? "/" + name : path + "/" + name;
+            if (isAssetPath(full)) continue;
+            try {
+                if (Module.FS.isDir(Module.FS.stat(full).mode)) walk(full);
+                else files[full] = Array.from(Module.FS.readFile(full));
+            } catch(e) { console.warn("Could not snapshot", full, e); }
+        }
     }
+    walk("/"); return files;
+}
 
+function ensureDir(path) {
+    let cur = "";
+    for (const part of path.split("/").filter(Boolean)) {
+        cur += "/" + part;
+        try { Module.FS.mkdir(cur); } catch(e) {}
+    }
+}
+
+function saveRam() {
+    const save = { format:"pvz-ram-save", version:1, created:new Date().toISOString(), files:snapshotFS() };
+    localStorage.setItem(PVZ_RAM_SAVE_KEY, JSON.stringify(save));
+    return Object.keys(save.files).length;
+}
+
+function restoreRam() {
+    const raw = localStorage.getItem(PVZ_RAM_SAVE_KEY);
+    if (!raw) return 0;
+    const save = JSON.parse(raw);
+    if (!save || save.format !== "pvz-ram-save" || !save.files) throw new Error("Invalid RAM save");
+    let loaded = 0;
+    for (const [path,data] of Object.entries(save.files)) {
+        if (!Array.isArray(data) || isAssetPath(path)) continue;
+        ensureDir(path.substring(0,path.lastIndexOf("/")) || "/");
+        Module.FS.writeFile(path,new Uint8Array(data)); loaded++;
+    }
+    return loaded;
+}
+
+async function exportSaveGame() {
+    const button=document.getElementById("saveGame"); button.disabled=true; button.textContent="Saving...";
     try {
-
-        Module.FS.mount(
-            Module.FS.filesystems.IDBFS,
-            {},
-            "/saves"
-        );
-
-    } catch (e) {
-
-        /*
-         * If the filesystem is already mounted, don't
-         * treat it as fatal.
-         */
-        console.log(
-            "Save filesystem already mounted:",
-            e
-        );
-    }
-
-    await new Promise((resolve) => {
-
-        Module.FS.syncfs(
-            true,
-            function(error) {
-
-                if (error) {
-                    console.warn(
-                        "Initial save sync failed:",
-                        error
-                    );
-                }
-
-                resolve();
-            }
-        );
-
-    });
+        const save={format:"pvz-ram-save",version:1,created:new Date().toISOString(),files:snapshotFS()};
+        localStorage.setItem(PVZ_RAM_SAVE_KEY,JSON.stringify(save));
+        const blob=new Blob([JSON.stringify(save)],{type:"application/json"});
+        const url=URL.createObjectURL(blob), a=document.createElement("a");
+        a.href=url; a.download="plants-vs-zombies-save.pvzsave"; document.body.appendChild(a); a.click(); a.remove();
+        setTimeout(()=>URL.revokeObjectURL(url),1000);
+        alert("Game saved! It will automatically restore when PvZ loads again.");
+    } finally { button.disabled=false; button.textContent="Save Game"; }
 }
 
-
-/*
- * Keep saves synchronized periodically.
- */
-function setupSaveSync() {
-
-    const sync = function() {
-
-        if (
-            Module &&
-            Module.FS &&
-            Module.FS.syncfs &&
-            !(
-                window.indexedDB &&
-                typeof window.indexedDB.open === "function" &&
-                typeof window.indexedDB.databases !== "function" &&
-                typeof window.indexedDB.cmp === "function"
-            )
-        ) {
-
-            Module.FS.syncfs(
-                false,
-                function(error) {
-
-                    if (error) {
-                        console.warn(
-                            "Save sync failed:",
-                            error
-                        );
-                    }
-
-                }
-            );
-        }
-    };
-
-    setInterval(sync, 5000);
-
-    window.addEventListener(
-        "pagehide",
-        sync
-    );
-
-    window.addEventListener(
-        "visibilitychange",
-        function() {
-
-            if (document.hidden)
-                sync();
-
-        }
-    );
+async function importSaveGame(file) {
+    const save=JSON.parse(await file.text());
+    if (!save || !save.files) throw new Error("This is not a valid PvZ save file.");
+    localStorage.setItem(PVZ_RAM_SAVE_KEY,JSON.stringify({format:"pvz-ram-save",version:1,created:new Date().toISOString(),files:save.files}));
+    alert("Save imported. PvZ will restart and restore it."); location.reload();
 }
 
+document.getElementById("saveGame").onclick=async()=>{try{await exportSaveGame();}catch(e){console.error(e);alert("Could not save the game:\n"+(e.message||e));}};
+document.getElementById("loadGame").onclick=()=>document.getElementById("loadFile").click();
+document.getElementById("loadFile").onchange=async e=>{const f=e.target.files&&e.target.files[0];if(!f)return;try{await importSaveGame(f);}catch(err){console.error(err);alert("Could not load the save:\n"+(err.message||err));}e.target.value="";};
+
+window.addEventListener("pagehide",()=>{try{if(Module&&Module.FS)saveRam();}catch(e){console.warn("Auto-save failed",e);}});
+window.addEventListener("beforeunload",()=>{try{if(Module&&Module.FS)saveRam();}catch(e){}});
 
 /*
  * Keep the original 800x600 PvZ aspect ratio.
@@ -1039,18 +983,14 @@ async function(event) {
          */
         await loadProperties();
 
-        /*
-         * Set up persistent saves.
-         */
-        await setupSaves();
-
-        setupSaveSync();
-
-        /*
-         * Track save files from this point onward, after the game's
-         * downloaded assets have already been created.
-         */
-        installSaveWriteTracker();
+        /* Restore the previous browser RAM snapshot before starting PvZ. */
+        statusText.textContent = "Restoring saved game...";
+        try {
+            const restored = restoreRam();
+            statusText.textContent = restored ? "Saved game restored..." : "No previous save found...";
+        } catch (e) {
+            console.warn("Could not restore previous RAM save:", e);
+        }
 
         progress.value = 100;
 
@@ -1073,6 +1013,9 @@ async function(event) {
          * Finally start the native game's main().
          */
         Module.callMain([]);
+
+        /* Automatically keep a recent RAM snapshot every 10 seconds. */
+        setInterval(()=>{try{if(Module&&Module.FS)saveRam();}catch(e){}},10000);
 
     } catch (error) {
 
