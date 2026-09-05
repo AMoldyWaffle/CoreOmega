@@ -1,0 +1,384 @@
+<!DOCTYPE html>
+
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+
+```
+<meta
+    name="viewport"
+    content="width=device-width, initial-scale=1.0"
+>
+
+<title>Counter-Strike 1.6 WebXash</title>
+
+<style>
+    html,
+    body {
+        margin: 0;
+        padding: 0;
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+        background: #000;
+    }
+
+    #app {
+        width: 100vw;
+        height: 100vh;
+    }
+
+    #loader {
+        position: fixed;
+        inset: 0;
+        z-index: 999999;
+
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        flex-direction: column;
+
+        background: #080808;
+        color: white;
+
+        font-family: Arial, sans-serif;
+    }
+
+    #loader h1 {
+        margin: 0 0 10px;
+        font-size: 28px;
+    }
+
+    #status {
+        color: #aaa;
+    }
+
+    #bar {
+        width: min(400px, 80vw);
+        height: 6px;
+
+        margin-top: 20px;
+
+        background: #222;
+        border-radius: 10px;
+        overflow: hidden;
+    }
+
+    #progress {
+        width: 10%;
+        height: 100%;
+
+        background: white;
+
+        transition: width 0.25s ease;
+    }
+
+    #error {
+        display: none;
+
+        width: min(800px, 85vw);
+
+        margin-top: 25px;
+        padding: 15px;
+
+        box-sizing: border-box;
+
+        background: #160808;
+        border: 1px solid #633;
+
+        color: #ff9999;
+
+        font-family: monospace;
+        font-size: 13px;
+        line-height: 1.5;
+
+        white-space: pre-wrap;
+        overflow: auto;
+    }
+</style>
+
+<!--
+    Load the CSS directly from GitHub.
+    This does NOT use fetch(), so it can be loaded by a local
+    file:// HTML page.
+-->
+
+<link
+    rel="stylesheet"
+    href="https://cdn.jsdelivr.net/gh/AMoldyWaffle/CoreOmega@main/CS16/assets/style-CNHZX-9s.css"
+>
+
+<script>
+    /*
+     * Display JavaScript errors instead of leaving a black screen.
+     */
+
+    window.addEventListener("error", function (event) {
+
+        if (!event.error) {
+            return;
+        }
+
+        var error = document.getElementById("error");
+
+        if (!error) {
+            return;
+        }
+
+        error.textContent =
+            "WebXash error:\n\n" +
+            (
+                event.error.stack ||
+                event.message ||
+                "Unknown error"
+            );
+
+        error.style.display = "block";
+    });
+
+
+    window.addEventListener(
+        "unhandledrejection",
+        function (event) {
+
+            var error =
+                document.getElementById("error");
+
+            if (!error) {
+                return;
+            }
+
+            error.textContent =
+                "WebXash promise error:\n\n" +
+                String(event.reason);
+
+            error.style.display = "block";
+        }
+    );
+</script>
+```
+
+</head>
+
+<body>
+
+```
+<!-- Loading screen -->
+
+<div id="loader">
+
+    <h1>
+        Counter-Strike 1.6
+    </h1>
+
+    <div id="status">
+        Loading WebXash...
+    </div>
+
+    <div id="bar">
+
+        <div id="progress"></div>
+
+    </div>
+
+</div>
+
+
+<!--
+    The WebXash application mounts here.
+-->
+
+<div id="app"></div>
+
+
+<script>
+
+    /*
+     * IMPORTANT:
+     *
+     * We intentionally do NOT use fetch().
+     *
+     * The launcher can therefore be opened directly with:
+     *
+     *     file:///.../CS16.html
+     *
+     * The browser itself downloads bundle.js from GitHub.
+     */
+
+
+    (function () {
+
+        var loader =
+            document.getElementById("loader");
+
+        var status =
+            document.getElementById("status");
+
+        var progress =
+            document.getElementById("progress");
+
+
+        status.textContent =
+            "Downloading WebXash engine...";
+
+        progress.style.width = "40%";
+
+
+        /*
+         * Create a normal external script.
+         */
+
+        var script =
+            document.createElement("script");
+
+
+        script.src =
+            "https://cdn.jsdelivr.net/gh/" +
+            "AMoldyWaffle/CoreOmega@main/CS16/bundle.js";
+
+
+        /*
+         * Don't make it an ES module.
+         * The original CoreOmega build uses a normal script.
+         */
+
+        script.async = false;
+
+
+        /*
+         * bundle.js downloaded successfully.
+         */
+
+        script.onload = function () {
+
+            status.textContent =
+                "Starting Counter-Strike 1.6...";
+
+            progress.style.width = "85%";
+
+
+            /*
+             * Wait for WebXash to actually put something
+             * inside #app.
+             */
+
+            var attempts = 0;
+
+
+            var watcher =
+                setInterval(
+                    function () {
+
+                        attempts++;
+
+
+                        var app =
+                            document.getElementById("app");
+
+
+                        /*
+                         * The game has mounted.
+                         */
+
+                        if (
+                            app &&
+                            app.children.length > 0
+                        ) {
+
+                            clearInterval(watcher);
+
+
+                            progress.style.width =
+                                "100%";
+
+                            status.textContent =
+                                "Ready";
+
+
+                            setTimeout(
+                                function () {
+
+                                    loader.style.transition =
+                                        "opacity 0.4s";
+
+                                    loader.style.opacity =
+                                        "0";
+
+
+                                    setTimeout(
+                                        function () {
+
+                                            loader.remove();
+
+                                        },
+                                        450
+                                    );
+
+                                },
+                                300
+                            );
+                        }
+
+
+                        /*
+                         * Don't wait forever.
+                         */
+
+                        if (attempts >= 120) {
+
+                            clearInterval(watcher);
+
+                            status.textContent =
+                                "WebXash loaded, " +
+                                "but nothing has rendered yet.";
+                        }
+
+                    },
+                    500
+                );
+        };
+
+
+        /*
+         * bundle.js failed to download.
+         */
+
+        script.onerror = function () {
+
+            status.textContent =
+                "Failed to download WebXash.";
+
+            progress.style.width = "0%";
+
+
+            var error =
+                document.getElementById("error");
+
+
+            error.textContent =
+                "Could not load bundle.js:\n\n" +
+                script.src +
+                "\n\n" +
+                "Make sure your browser/network " +
+                "allows access to " +
+                "cdn.jsdelivr.net.";
+
+            error.style.display = "block";
+        };
+
+
+        /*
+         * Finally add the script to the page.
+         *
+         * The browser downloads it from GitHub automatically.
+         */
+
+        document.body.appendChild(script);
+
+    })();
+
+</script>
+```
+
+</body>
+</html>
