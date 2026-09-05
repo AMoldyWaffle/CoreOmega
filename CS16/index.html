@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="./assets/hl-bright-BcANNclR.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>CS 1.6 · WebXash</title>
+
+    <!--
+      Diagnostic layer, added on top of the original build. Runs BEFORE
+      bundle.js (this script is not "defer", the game's is) so it catches
+      any error thrown while the app boots, including inside Vue's mount.
+      Nothing here touches bundle.js or the assets — if the app loads fine,
+      this stays invisible.
+    -->
+    <style>
+      #boot-diag {
+        display: none;
+        position: fixed; inset: 0; z-index: 99999;
+        background: #0b0b0b; color: #ff8080;
+        font: 13px/1.5 ui-monospace, Menlo, Consolas, monospace;
+        padding: 20px; box-sizing: border-box; overflow: auto;
+        white-space: pre-wrap;
+      }
+      #boot-diag h1 { color: #fff; font-size: 15px; margin: 0 0 12px; }
+      #boot-diag .hint { color: #9aa0ab; font-family: sans-serif; margin-top: 16px; }
+    </style>
+    <script>
+      (function () {
+        var diag = null;
+        var shown = false;
+        var entries = [];
+
+        function ensureDiag() {
+          if (diag) return diag;
+          diag = document.createElement('div');
+          diag.id = 'boot-diag';
+          diag.innerHTML = '<h1>WebXash failed to start</h1><div id="boot-diag-body"></div>' +
+            '<div class="hint">This is the actual error the game hit while loading — copy this ' +
+            'text back so it can be fixed directly, rather than guessing.</div>';
+          document.documentElement.appendChild(diag);
+          return diag;
+        }
+
+        function show(label, detail) {
+          entries.push(label + (detail ? '\n' + detail : ''));
+          var d = ensureDiag();
+          document.getElementById('boot-diag-body').textContent = entries.join('\n\n---\n\n');
+          d.style.display = 'block';
+          shown = true;
+        }
+
+        window.addEventListener('error', function (e) {
+          var msg = e.message || String(e.error || 'Unknown error');
+          var stack = e.error && e.error.stack ? e.error.stack : (e.filename ? e.filename + ':' + e.lineno + ':' + e.colno : '');
+          show('Uncaught error: ' + msg, stack);
+        });
+
+        window.addEventListener('unhandledrejection', function (e) {
+          var reason = e.reason;
+          var msg = (reason && (reason.message || reason)) || 'Unknown rejection';
+          var stack = reason && reason.stack ? reason.stack : '';
+          show('Unhandled promise rejection: ' + msg, stack);
+        });
+
+        // Watchdog: if nothing ever renders into #app and no error fired,
+        // say so explicitly instead of leaving an unexplained blank page
+        // (covers silent hangs, e.g. a stalled fetch of a data: URI).
+        window.addEventListener('load', function () {
+          setTimeout(function () {
+            if (shown) return;
+            var app = document.getElementById('app');
+            if (app && app.children.length === 0) {
+              show(
+                'Nothing rendered into #app after 4s and no JS error was thrown.',
+                'This usually means something is hanging (not throwing) during startup. ' +
+                'Open DevTools > Network to see if any request is stuck pending.'
+              );
+            }
+          }, 4000);
+        });
+      })();
+    </script>
+
+    <script defer src="./bundle.js"></script>
+    <link rel="stylesheet" href="./assets/style-CNHZX-9s.css">
+  
+<style>
+/* Auto-download loading screen styled to match the PvZ launcher. */
+.cs-start{position:fixed!important;inset:0!important;z-index:9999!important;display:flex!important;align-items:center!important;justify-content:center!important;background:#000!important;color:#fff!important;text-align:center!important;font-family:system-ui,sans-serif!important}
+.cs-start__panel{display:flex!important;flex-direction:column!important;align-items:center!important;justify-content:center!important;gap:12px!important;width:min(500px,80vw)!important;background:transparent!important;box-shadow:none!important;border:none!important;padding:0!important}
+.cs-start__title{font-size:24px!important;font-weight:700!important;margin:0!important;color:#fff!important}
+.cs-start__hint{display:none!important}
+.cs-start__error{font-size:15px!important;font-weight:400!important;opacity:.8!important;margin:0!important;max-width:80vw!important;min-height:1.5em!important;color:#fff!important}
+.cs-start__footnote{display:none!important}
+.xash-loading{position:fixed!important;inset:0!important;z-index:9998!important;display:flex!important;align-items:center!important;justify-content:center!important;background:#000!important;color:#fff!important;font:700 24px system-ui,sans-serif!important;text-align:center!important}
+.xash-loading__container{display:flex!important;flex-direction:column!important;align-items:center!important;gap:12px!important;width:min(500px,80vw)!important}
+.xash-loading progress{width:min(500px,80vw)!important;height:8px!important}
+</style>
+</head>
+  <body>
+    <div id="app"></div>
+  </body>
+</html>
