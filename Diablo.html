@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Diablo 1 Launcher</title>
+<style>
+  html, body {
+    margin: 0;
+    width: 100%;
+    height: 100%;
+    background: #080808;
+    color: #eee;
+    font-family: Arial, sans-serif;
+    overflow: hidden;
+  }
+
+  #launcher {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .panel {
+    text-align: center;
+    max-width: 520px;
+    padding: 36px;
+    border: 1px solid #444;
+    background: #151515;
+    box-shadow: 0 0 30px rgba(0,0,0,.7);
+  }
+
+  h1 {
+    margin: 0 0 12px;
+    font-family: Georgia, serif;
+    letter-spacing: 4px;
+    color: #c9a36a;
+  }
+
+  p {
+    color: #aaa;
+    line-height: 1.5;
+  }
+
+  button {
+    margin-top: 18px;
+    padding: 13px 30px;
+    border: 1px solid #9b7a45;
+    background: #241b10;
+    color: #e6c58c;
+    font-size: 16px;
+    cursor: pointer;
+  }
+
+  button:hover {
+    background: #392914;
+  }
+
+  .small {
+    font-size: 12px;
+    color: #777;
+    margin-top: 18px;
+  }
+</style>
+</head>
+<body>
+<div id="launcher">
+  <div class="panel">
+    <h1>DIABLO</h1>
+    <p>Diablo 1 is ready to launch.</p>
+    <p>The game files and automatic DIABDAT.MPQ loader are stored in the <b>Diablo</b> folder.</p>
+    <button id="launch">PLAY DIABLO</button>
+    <div class="small">CoreOmega • Diablo 1</div>
+  </div>
+</div>
+
+<script>
+(function () {
+  "use strict";
+
+  const GAME_PATH = "Diablo/index.html";
+
+  function launch() {
+    // Use the normal relative path so all of Diablo's sibling files
+    // (app.js, WASM data, CSS, etc.) resolve correctly.
+    window.location.href = GAME_PATH;
+  }
+
+  document.getElementById("launch").addEventListener("click", launch);
+
+  // If this launcher is opened from a normal web page, automatically
+  // launch after a short delay. The button remains available as a fallback.
+  setTimeout(launch, 900);
+})();
+</script>
+</body>
+</html>
