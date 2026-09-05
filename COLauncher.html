@@ -32,8 +32,32 @@ body{overflow:hidden}
 @keyframes blink{0%,49%{opacity:1}50%,100%{opacity:0}}
 .tagline{margin-top:8px;color:var(--muted);font-size:14px}
 
+.search{
+  margin-top:20px;
+}
+#gameSearch{
+  width:100%;
+  padding:12px 14px;
+  border:1px solid var(--line);
+  border-radius:3px;
+  background:var(--panel);
+  color:var(--text);
+  font-family:var(--font);
+  font-size:13px;
+  outline:none;
+}
+#gameSearch::placeholder{color:var(--muted)}
+#gameSearch:focus{border-color:var(--amber)}
+.no-results{
+  display:none;
+  padding:22px 20px;
+  color:var(--muted);
+  font-size:13px;
+  text-align:center;
+}
+
 .panel{
-  margin-top:34px;
+  margin-top:14px;
   border:1px solid var(--line);
   border-radius:3px;
   background:var(--panel);
@@ -93,8 +117,21 @@ font:12px var(--font);color:#c9d3e5;white-space:pre-wrap}
   <div class="wordmark">CoreOmega<span class="cursor">&nbsp;</span></div>
   <div class="tagline">A handful of old machines, kept running in a browser tab.</div>
 
+  <div class="search">
+    <input id="gameSearch" type="search" placeholder="Search games..." autocomplete="off" aria-label="Search games">
+  </div>
+
   <div class="panel">
     <ul class="list">
+      <li>
+        <div class="row">
+          <div class="title">
+            <div class="name">Counter-Strike 1.6</div>
+            <div class="meta">PC port</div>
+          </div>
+          <button class="run" onclick="launch('Counter-Strike 1.6')">Launch</button>
+        </div>
+      </li>
       <li>
         <div class="row">
           <div class="title">
@@ -125,22 +162,23 @@ font:12px var(--font);color:#c9d3e5;white-space:pre-wrap}
       <li>
         <div class="row">
           <div class="title">
-            <div class="name">Quake II</div>
-            <div class="meta">PlayStation 1 emulator</div>
-          </div>
-          <button class="run" onclick="launch('Quake II')">Launch</button>
-        </div>
-      </li>
-      <li>
-        <div class="row">
-          <div class="title">
             <div class="name">Plants vs. Zombies: Game of the Year</div>
             <div class="meta">PC port</div>
           </div>
           <button class="run" onclick="launch('Plants vs. Zombies GOTY')">Launch</button>
         </div>
       </li>
+      <li>
+        <div class="row">
+          <div class="title">
+            <div class="name">Quake II</div>
+            <div class="meta">PlayStation 1 emulator</div>
+          </div>
+          <button class="run" onclick="launch('Quake II')">Launch</button>
+        </div>
+      </li>
     </ul>
+    <div id="noResults" class="no-results">No games found.</div>
   </div>
 
   <footer class="note">Each title loads into its own sandboxed page on request.</footer>
@@ -159,6 +197,7 @@ font:12px var(--font);color:#c9d3e5;white-space:pre-wrap}
 <script>
 const GAMES = {
   "Half-Life 1 PC": "https://cdn.jsdelivr.net/gh/AMoldyWaffle/CoreOmega@main/Half-Life%201%20PC.html",
+  "Counter-Strike 1.6": "https://cdn.jsdelivr.net/gh/AMoldyWaffle/CoreOmega@main/Counter%20Strike%201.6.html",
   "Mario Kart 64": "https://cdn.jsdelivr.net/gh/AMoldyWaffle/CoreOmega@main/Mario%20Kart%2064.html",
   "Paper Mario": "https://cdn.jsdelivr.net/gh/AMoldyWaffle/CoreOmega@main/Paper%20Mario.html",
   "Quake II": "https://cdn.jsdelivr.net/gh/AMoldyWaffle/CoreOmega@main/Quake%202.html",
@@ -446,6 +485,25 @@ function compatibilityScript() {
 })();
 <\/script>`;
 }
+
+const gameSearch = document.getElementById("gameSearch");
+const gameRows = Array.from(document.querySelectorAll(".list > li"));
+const noResults = document.getElementById("noResults");
+
+gameSearch.addEventListener("input", function() {
+  const query = this.value.trim().toLowerCase();
+  let visible = 0;
+
+  gameRows.forEach(function(row) {
+    const name = row.querySelector(".name");
+    const text = name ? name.textContent.toLowerCase() : "";
+    const match = !query || text.includes(query);
+    row.style.display = match ? "" : "none";
+    if (match) visible++;
+  });
+
+  noResults.style.display = visible ? "none" : "block";
+});
 
 async function launch(name) {
   statusBox.textContent = "Launching " + name + "...";
