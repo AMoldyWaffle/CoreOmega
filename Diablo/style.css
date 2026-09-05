@@ -1,0 +1,154 @@
+html, body {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  height: 100%;
+  background: #000;
+  color: #ccc;
+  font-family: "Times New Roman", serif;
+  overflow: hidden;
+}
+
+#app {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+#app.dropping::after {
+  content: "Drop your MPQ file to start";
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.75);
+  color: #fc0;
+  font-size: 2vw;
+  z-index: 50;
+  pointer-events: none;
+}
+
+.canvasWrap {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+#canvas {
+  background: #000;
+  image-rendering: pixelated;
+  width: min(100vw, 133.33vh);
+  height: min(75vw, 100vh);
+  display: none;
+}
+#app.started #canvas {
+  display: block;
+}
+#app.started .overlay {
+  display: none;
+}
+
+#keyboardInput {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+  left: -9999px;
+}
+#app.keyboard #keyboardInput {
+  opacity: 0;
+}
+
+.overlay {
+  width: min(90vw, 900px);
+  max-height: 85vh;
+  overflow: auto;
+  background: rgba(10, 10, 10, 0.92);
+  border: 1px solid #654321;
+  padding: 24px 32px;
+  box-sizing: border-box;
+  text-align: center;
+}
+
+.overlay h1 {
+  color: #fc0;
+  font-size: 28px;
+  letter-spacing: 2px;
+  margin-top: 0;
+}
+
+.overlay p {
+  line-height: 1.5;
+  font-size: 15px;
+}
+
+.overlay a {
+  color: #fc0;
+}
+
+.startButton, button, .btn {
+  display: inline-block;
+  margin: 8px 6px;
+  padding: 10px 22px;
+  background: linear-gradient(#3a2a1a, #1a1208);
+  border: 1px solid #987654;
+  color: #fc0;
+  font-family: inherit;
+  font-size: 15px;
+  cursor: pointer;
+  border-radius: 3px;
+}
+.startButton:hover, button:hover, .btn:hover {
+  background: linear-gradient(#4a3520, #241708);
+}
+
+.progressBarOuter {
+  width: 80%;
+  height: 14px;
+  margin: 16px auto 0;
+  border: 1px solid #654321;
+  background: #111;
+}
+.progressBarInner {
+  height: 100%;
+  width: 0%;
+  background: linear-gradient(#a08030, #6a4c1e);
+}
+
+#errorScreen .body {
+  color: #f66;
+  white-space: pre-wrap;
+  text-align: left;
+  max-height: 40vh;
+  overflow: auto;
+  background: #150000;
+  padding: 10px;
+  border: 1px solid #611;
+}
+
+#saveList {
+  list-style: none;
+  padding: 0;
+  text-align: left;
+  max-height: 40vh;
+  overflow: auto;
+}
+#saveList li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 0;
+  border-bottom: 1px solid #332211;
+}
+#saveList li span {
+  flex: 1;
+  word-break: break-all;
+}
+
+.hidden { display: none !important; }

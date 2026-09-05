@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>DIABLO</title>
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div id="app">
+    <div class="canvasWrap">
+      <canvas id="canvas" width="640" height="480"></canvas>
+      <input id="keyboardInput" type="text" spellcheck="false" />
+
+      <div id="startScreen" class="overlay">
+        <h1>DIABLO</h1>
+        <p>
+          This is an offline, file:// build of the DiabloWeb project
+          (<a href="https://github.com/d07RiV/diabloweb" target="_blank" rel="noopener noreferrer">d07RiV/diabloweb</a>),
+          which runs the original Diablo via WebAssembly, based on the
+          devilution reconstructed source.
+        </p>
+        <p>
+          <b>DIABDAT.MPQ</b> is loaded automatically from the configured
+          11-part GitHub download. The parts are reassembled in memory before
+          the game starts.
+        </p>
+        <p>
+          If the automatic download is unavailable, you can still select your
+          own <b>DIABDAT.MPQ</b> below. A <b>spawn.mpq</b> file also works.
+        </p>
+        <form onsubmit="return false">
+          <label for="fileInput" class="startButton">Select MPQ File</label>
+          <input accept=".mpq" type="file" id="fileInput" style="display:none" />
+        </form>
+        <div id="manageSaves" class="startButton" style="display:none">Manage Saves</div>
+      </div>
+
+      <div id="loadingScreen" class="overlay" style="display:none">
+        <p id="progressText">Loading...</p>
+        <div class="progressBarOuter"><div id="progressBarInner" class="progressBarInner"></div></div>
+      </div>
+
+      <div id="errorScreen" class="overlay" style="display:none">
+        <h1>Error</h1>
+        <p class="body" id="errorBody"></p>
+        <p><a id="errorLink" href="#" target="_blank" rel="noopener noreferrer">Report this on GitHub</a></p>
+        <p><a id="saveDownload" href="#" style="display:none">Download current save file</a></p>
+        <div class="startButton" onclick="window.location.reload()">Reload</div>
+      </div>
+
+      <div id="savesScreen" class="overlay" style="display:none">
+        <h1>Saves</h1>
+        <ul id="saveList"></ul>
+        <form onsubmit="return false">
+          <label for="saveFileInput" class="startButton">Upload Save</label>
+          <input accept=".sv" type="file" id="saveFileInput" style="display:none" />
+        </form>
+        <div id="savesBack" class="startButton">Back</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Emscripten glue (defines window.Diablo / window.DiabloSpawn factory functions) -->
+  <script src="Diablo.jscc.js"></script>
+  <script src="DiabloSpawn.jscc.js"></script>
+  <!-- Base64-encoded .wasm binaries, embedded so no fetch()/XHR is needed
+       (file:// pages cannot fetch sibling files in most browsers) -->
+  <script src="wasm-data.js"></script>
+  <!-- App logic -->
+  <script src="app.js"></script>
+</body>
+</html>
