@@ -137,65 +137,72 @@
             document.getElementById('stage').textContent = text;
         }
 
-        function loadScript(url, label, timeout=45000) {
-            return new Promise((resolve, reject) => {
-                const s = document.createElement('script');
-                let done = false;
-                const timer = setTimeout(() => {
-                    if (done) return;
-                    done = true;
-                    s.remove();
-                    reject(new Error('Timeout loading ' + label));
-                }, timeout);
-                s.async = true;
-                s.src = url;
-                s.onload = () => {
-                    if (done) return;
-                    done = true; clearTimeout(timer); resolve();
-                };
-                s.onerror = () => {
-                    if (done) return;
-                    done = true; clearTimeout(timer); s.remove();
-                    reject(new Error('Failed to load ' + label));
-                };
-                document.head.appendChild(s);
-            });
+        async function fetchAndRunScript(url, label, timeout=60000) {
+            const controller = new AbortController();
+            const timer = setTimeout(() => controller.abort(), timeout);
+            try {
+                const response = await fetch(url, {cache:'force-cache', signal:controller.signal});
+                if (!response.ok) throw new Error(response.status + ' ' + response.statusText);
+                const source = await response.text();
+                if (!source || source.length < 20) throw new Error('empty script');
+
+                const blob = new Blob([source], {type:'application/javascript'});
+                const blobUrl = URL.createObjectURL(blob);
+                try {
+                    await new Promise((resolve, reject) => {
+                        const sc = document.createElement('script');
+                        let finished = false;
+                        const finish = (err) => {
+                            if (finished) return;
+                            finished = true;
+                            sc.remove();
+                            err ? reject(err) : resolve();
+                        };
+                        sc.onload = () => finish();
+                        sc.onerror = () => finish(new Error('execution error loading ' + label));
+                        sc.src = blobUrl;
+                        document.head.appendChild(sc);
+                        setTimeout(() => finish(new Error('execution timeout for ' + label)), timeout);
+                    });
+                } finally {
+                    URL.revokeObjectURL(blobUrl);
+                }
+            } finally {
+                clearTimeout(timer);
+            }
+        }
+
+        function mirrorUrls(path) {
+            const folder = encodeURIComponent(FOLDER).replace(/%2F/g, '/');
+            const cleanPath = folder + path;
+            return [
+                'https://media.githubusercontent.com/media/' + REPO + '/main/' + cleanPath,
+                'https://rawcdn.githack.com/' + REPO + '/main/' + cleanPath,
+                'https://cdn.githubraw.com/' + REPO + '/main/' + cleanPath,
+                'https://gitcdn.link/cdn/' + REPO + '/main/' + cleanPath,
+                'https://raw.githubusercontent.com/' + REPO + '/refs/heads/main/' + cleanPath,
+                'https://cdn.jsdelivr.net/gh/' + REPO + '@main/' + cleanPath,
+                'https://fastly.jsdelivr.net/gh/' + REPO + '@main/' + cleanPath
+            ];
         }
 
         async function loadWithFallback(urls, label) {
             let lastError = null;
             for (let i = 0; i < urls.length; i++) {
                 try {
-                    await loadScript(urls[i], label + ' (source ' + (i + 1) + '/' + urls.length + ')');
+                    await fetchAndRunScript(urls[i], label + ' (source ' + (i + 1) + '/' + urls.length + ')', 60000);
                     return urls[i];
                 } catch (e) {
                     lastError = e;
-                    console.warn('Failed ' + label + ' from source ' + (i + 1) + '; trying next mirror...');
+                    console.warn(label + ' source ' + (i + 1) + ' failed:', e);
                 }
             }
             throw lastError || new Error('Failed to load ' + label);
         }
 
-        function mirrorUrls(path) {
-            const folderPath = encodeURIComponent(FOLDER).replace(/%2F/g, '/') + path;
-            return [
-                // GitHub's media host is designed for serving large repository files.
-                'https://media.githubusercontent.com/media/' + REPO + '/main/' + folderPath,
-                // jsDelivr CDN
-                'https://cdn.jsdelivr.net/gh/' + REPO + '@main/' + folderPath,
-                // jsDelivr alternate endpoint
-                'https://fastly.jsdelivr.net/gh/' + REPO + '@main/' + folderPath,
-                // GitHack proxy
-                'https://raw.githack.com/' + REPO + '/main/' + folderPath,
-                // GitHub Raw final fallback
-                'https://raw.githubusercontent.com/' + REPO + '/main/' + folderPath
-            ];
-        }
-
         async function loadRuntimeAndZip() {
-            // Start JSZip and Runtime together so neither delays the large data downloads.
             await Promise.all([
-                loadScript('https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js', 'JSZip'),
+                fetchAndRunScript('https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js', 'JSZip', 60000),
                 loadWithFallback(mirrorUrls('/src/Runtime.js'), 'Runtime.js')
             ]);
         }
@@ -218,21 +225,21 @@
 
         async function loadParts() {
             // Keep some concurrency so one flaky CDN request cannot break the whole batch.
-            const concurrency = 4;
+            const concurrency = 2;
             let next = 0, completed = 0;
             const worker = async () => {
                 while (true) {
                     const i = next++;
                     if (i >= parts) return;
                     let last;
-                    for (let attempt = 1; attempt <= 4; attempt++) {
+                    for (let attempt = 1; attempt <= 6; attempt++) {
                         try {
                             await loadOnePart(i);
                             last = null;
                             break;
                         } catch (e) {
                             last = e;
-                            if (attempt < 4) await new Promise(r => setTimeout(r, 1000 * attempt));
+                            if (attempt < 6) await new Promise(r => setTimeout(r, 1500 * attempt));
                         }
                     }
                     if (last) throw last;
