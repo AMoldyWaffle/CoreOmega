@@ -148,54 +148,80 @@
                     reject(new Error('Timeout loading ' + label));
                 }, timeout);
                 s.async = true;
+                // IMPORTANT: do not add cache-busting parameters to CDN URLs.
+                // Some large-file CDNs cache by the exact path and query strings can
+                // force a slow origin request instead of using the cached copy.
                 s.src = url;
                 s.onload = () => {
                     if (done) return;
-                    done = true; clearTimeout(timer); resolve();
+                    done = true;
+                    clearTimeout(timer);
+                    resolve();
                 };
                 s.onerror = () => {
                     if (done) return;
-                    done = true; clearTimeout(timer); s.remove();
-                    reject(new Error('Failed to load ' + label));
+                    done = true;
+                    clearTimeout(timer);
+                    s.remove();
+                    reject(new Error('Network error loading ' + label));
                 };
                 document.head.appendChild(s);
             });
         }
 
+        function mirrorUrls(path) {
+            const folder = encodeURIComponent(FOLDER).replace(/%2F/g, '/');
+            const cleanPath = folder + path;
+            return [
+                // Production CDNs capable of serving large GitHub files.
+                'https://rawcdn.githack.com/' + REPO + '/main/' + cleanPath,
+                'https://cdn.githubraw.com/' + REPO + '/main/' + cleanPath,
+                'https://gitcdn.link/cdn/' + REPO + '/main/' + cleanPath,
+                'https://media.githubusercontent.com/media/' + REPO + '/main/' + cleanPath,
+                // GitHub Raw fallback.
+                'https://raw.githubusercontent.com/' + REPO + '/refs/heads/main/' + cleanPath,
+                // jsDelivr only as a final fallback because GitHub has a 20 MB single-file limit.
+                'https://cdn.jsdelivr.net/gh/' + REPO + '@main/' + cleanPath,
+                'https://fastly.jsdelivr.net/gh/' + REPO + '@main/' + cleanPath
+            ];
+        }
+
         async function loadWithFallback(urls, label) {
+            // Race several mirrors instead of waiting for one broken/slow CDN to
+            // time out. This is especially important for the 20 large UCN parts.
+            const raceCount = Math.min(4, urls.length);
+            let winner = false;
             let lastError = null;
-            for (let i = 0; i < urls.length; i++) {
-                try {
-                    await loadScript(urls[i], label + ' (source ' + (i + 1) + '/' + urls.length + ')');
-                    return urls[i];
-                } catch (e) {
-                    lastError = e;
-                    console.warn('Failed ' + label + ' from source ' + (i + 1) + '; trying next mirror...');
+
+            const jobs = urls.slice(0, raceCount).map((url, i) =>
+                loadScript(url, label + ' (CDN ' + (i + 1) + '/' + raceCount + ')', 45000)
+                    .then(() => ({url}))
+                    .catch(e => { lastError = e; throw e; })
+            );
+
+            try {
+                const result = await Promise.any(jobs);
+                winner = true;
+                return result.url;
+            } catch (e) {
+                // If all production mirrors fail, try the remaining mirrors one at a time.
+                for (let i = raceCount; i < urls.length; i++) {
+                    try {
+                        return await loadScript(urls[i], label + ' (source ' + (i + 1) + '/' + urls.length + ')', 45000).then(() => urls[i]);
+                    } catch (err) {
+                        lastError = err;
+                    }
                 }
             }
             throw lastError || new Error('Failed to load ' + label);
         }
 
-        function mirrorUrls(path) {
-            const folderPath = encodeURIComponent(FOLDER).replace(/%2F/g, '/') + path;
-            return [
-                // GitHub's media host is designed for serving large repository files.
-                'https://media.githubusercontent.com/media/' + REPO + '/main/' + folderPath,
-                // jsDelivr CDN
-                'https://cdn.jsdelivr.net/gh/' + REPO + '@main/' + folderPath,
-                // jsDelivr alternate endpoint
-                'https://fastly.jsdelivr.net/gh/' + REPO + '@main/' + folderPath,
-                // GitHack proxy
-                'https://raw.githack.com/' + REPO + '/main/' + folderPath,
-                // GitHub Raw final fallback
-                'https://raw.githubusercontent.com/' + REPO + '/main/' + folderPath
-            ];
-        }
-
         async function loadRuntimeAndZip() {
-            // Start JSZip and Runtime together so neither delays the large data downloads.
             await Promise.all([
-                loadScript('https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js', 'JSZip'),
+                loadWithFallback([
+                    'https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js',
+                    'https://unpkg.com/jszip@3.10.1/dist/jszip.min.js'
+                ], 'JSZip'),
                 loadWithFallback(mirrorUrls('/src/Runtime.js'), 'Runtime.js')
             ]);
         }
@@ -218,21 +244,21 @@
 
         async function loadParts() {
             // Keep some concurrency so one flaky CDN request cannot break the whole batch.
-            const concurrency = 4;
+            const concurrency = 2;
             let next = 0, completed = 0;
             const worker = async () => {
                 while (true) {
                     const i = next++;
                     if (i >= parts) return;
                     let last;
-                    for (let attempt = 1; attempt <= 4; attempt++) {
+                    for (let attempt = 1; attempt <= 6; attempt++) {
                         try {
                             await loadOnePart(i);
                             last = null;
                             break;
                         } catch (e) {
                             last = e;
-                            if (attempt < 4) await new Promise(r => setTimeout(r, 1000 * attempt));
+                            if (attempt < 6) await new Promise(r => setTimeout(r, 1500 * attempt));
                         }
                     }
                     if (last) throw last;
