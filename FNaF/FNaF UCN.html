@@ -137,93 +137,85 @@
             document.getElementById('stage').textContent = text;
         }
 
-        function loadScript(url, label, timeout=45000) {
-            return new Promise((resolve, reject) => {
-                const s = document.createElement('script');
-                let done = false;
-                const timer = setTimeout(() => {
-                    if (done) return;
-                    done = true;
-                    s.remove();
-                    reject(new Error('Timeout loading ' + label));
-                }, timeout);
-                s.async = true;
-                // IMPORTANT: do not add cache-busting parameters to CDN URLs.
-                // Some large-file CDNs cache by the exact path and query strings can
-                // force a slow origin request instead of using the cached copy.
-                s.src = url;
-                s.onload = () => {
-                    if (done) return;
-                    done = true;
-                    clearTimeout(timer);
-                    resolve();
-                };
-                s.onerror = () => {
-                    if (done) return;
-                    done = true;
-                    clearTimeout(timer);
-                    s.remove();
-                    reject(new Error('Network error loading ' + label));
-                };
-                document.head.appendChild(s);
-            });
+        async function fetchAndRunScript(url, label, timeout=60000) {
+            const controller = new AbortController();
+            const timer = setTimeout(() => controller.abort(), timeout);
+            try {
+                const response = await fetch(url, {cache:'force-cache', signal:controller.signal});
+                if (!response.ok) throw new Error(response.status + ' ' + response.statusText);
+                const source = await response.text();
+                if (!source || source.length < 20) throw new Error('empty script');
+
+                // ChromeOS/Chromebook is much more reliable with HTTPS resources
+                // fetched first and then executed from a local Blob URL than with
+                // thousands-of-KB cross-origin <script src> requests from file://.
+                const blob = new Blob([source], {type:'application/javascript'});
+                const blobUrl = URL.createObjectURL(blob);
+                try {
+                    await new Promise((resolve, reject) => {
+                        const s = document.createElement('script');
+                        let finished = false;
+                        const finish = (err) => {
+                            if (finished) return;
+                            finished = true;
+                            s.remove();
+                            err ? reject(err) : resolve();
+                        };
+                        s.onload = () => finish();
+                        s.onerror = () => finish(new Error('execution error loading ' + label));
+                        s.src = blobUrl;
+                        document.head.appendChild(s);
+                        setTimeout(() => finish(new Error('execution timeout for ' + label)), timeout);
+                    });
+                } finally {
+                    URL.revokeObjectURL(blobUrl);
+                }
+            } finally {
+                clearTimeout(timer);
+            }
         }
 
         function mirrorUrls(path) {
             const folder = encodeURIComponent(FOLDER).replace(/%2F/g, '/');
             const cleanPath = folder + path;
             return [
-                // Production CDNs capable of serving large GitHub files.
+                'https://media.githubusercontent.com/media/' + REPO + '/main/' + cleanPath,
                 'https://rawcdn.githack.com/' + REPO + '/main/' + cleanPath,
                 'https://cdn.githubraw.com/' + REPO + '/main/' + cleanPath,
                 'https://gitcdn.link/cdn/' + REPO + '/main/' + cleanPath,
-                'https://media.githubusercontent.com/media/' + REPO + '/main/' + cleanPath,
-                // GitHub Raw fallback.
                 'https://raw.githubusercontent.com/' + REPO + '/refs/heads/main/' + cleanPath,
-                // jsDelivr only as a final fallback because GitHub has a 20 MB single-file limit.
                 'https://cdn.jsdelivr.net/gh/' + REPO + '@main/' + cleanPath,
                 'https://fastly.jsdelivr.net/gh/' + REPO + '@main/' + cleanPath
             ];
         }
 
         async function loadWithFallback(urls, label) {
-            // Race several mirrors instead of waiting for one broken/slow CDN to
-            // time out. This is especially important for the 20 large UCN parts.
-            const raceCount = Math.min(4, urls.length);
-            let winner = false;
             let lastError = null;
-
-            const jobs = urls.slice(0, raceCount).map((url, i) =>
-                loadScript(url, label + ' (CDN ' + (i + 1) + '/' + raceCount + ')', 45000)
-                    .then(() => ({url}))
-                    .catch(e => { lastError = e; throw e; })
-            );
-
-            try {
-                const result = await Promise.any(jobs);
-                winner = true;
-                return result.url;
-            } catch (e) {
-                // If all production mirrors fail, try the remaining mirrors one at a time.
-                for (let i = raceCount; i < urls.length; i++) {
-                    try {
-                        return await loadScript(urls[i], label + ' (source ' + (i + 1) + '/' + urls.length + ')', 45000).then(() => urls[i]);
-                    } catch (err) {
-                        lastError = err;
-                    }
+            for (let i = 0; i < urls.length; i++) {
+                try {
+                    await fetchAndRunScript(urls[i], label + ' (source ' + (i + 1) + '/' + urls.length + ')', 60000);
+                    return urls[i];
+                } catch (e) {
+                    lastError = e;
+                    console.warn(label + ' source ' + (i + 1) + ' failed:', e);
                 }
             }
             throw lastError || new Error('Failed to load ' + label);
         }
 
         async function loadRuntimeAndZip() {
-            await Promise.all([
-                loadWithFallback([
-                    'https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js',
-                    'https://unpkg.com/jszip@3.10.1/dist/jszip.min.js'
-                ], 'JSZip'),
-                loadWithFallback(mirrorUrls('/src/Runtime.js'), 'Runtime.js')
-            ]);
+            // Same loading pattern as the working Sister Location launcher:
+            // JSZip is loaded from a normal HTTPS CDN, while the game runtime is
+            // fetched and executed from a Blob URL.
+            await new Promise((resolve, reject) => {
+                if (window.JSZip) return resolve();
+                const s = document.createElement('script');
+                s.src = 'https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js';
+                s.onload = resolve;
+                s.onerror = () => reject(new Error('Failed to load JSZip'));
+                document.head.appendChild(s);
+            });
+            await loadWithFallback(mirrorUrls('/src/Runtime.js'), 'Runtime.js');
         }
 
         function base64ToBytes(b64) {
