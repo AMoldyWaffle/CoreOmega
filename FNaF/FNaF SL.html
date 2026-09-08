@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>Five Nights at Freddy's: Sister Location</title>
+<style>
+html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#000}
+body{display:flex;align-items:center;justify-content:center;color:#fff;font-family:monospace}
+#MMFCanvas{display:none}
+#selection{width:70vw;max-width:650px;text-align:center}
+#percentage{font-size:2em;margin:0 0 18px}
+#track{height:18px;border:1px solid #fff;padding:2px;box-sizing:border-box}
+#bar{height:100%;width:0;background:#fff;transition:width .15s linear}
+#stage{margin-top:18px;font-size:14px;font-weight:normal}
+</style>
+</head>
+<body>
+<canvas id="MMFCanvas" width="1280" height="720"></canvas>
+<div id="selection"><div id="percentage">0%</div><div id="track"><div id="bar"></div></div><div id="stage">STARTING UP...</div></div>
+<script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
+<script>
+(() => {
+  const REPO='AMoldyWaffle/Five-Nights-at-Frebby', FOLDER='FNaFSL', PARTS=20;
+  const RUNTIME='resources/fnafsl.cch';
+  const CDN='https://cdn.jsdelivr.net/gh/'+REPO+'@main/'+FOLDER;
+  const MEDIA='https://media.githubusercontent.com/media/'+REPO+'/main/'+FOLDER;
+  const RAW='https://raw.githubusercontent.com/'+REPO+'/main/'+FOLDER;
+  const $=id=>document.getElementById(id);
+  function progress(text,p){p=Math.max(0,Math.min(100,Math.floor(p)));$('percentage').textContent=p+'%';$('bar').style.width=p+'%';$('stage').textContent=text;document.title=p+'% Five Nights at Freddy\'s: Sister Location';}
+  function urls(n){const f='src/resources.zip.part'+n;return [MEDIA+'/'+f,CDN+'/'+f,RAW+'/'+f];}
+  async function fetchOne(n){
+    let last;
+    for(const u of urls(n)){
+      try{
+        const r=await fetch(u,{cache:'force-cache'});
+        if(!r.ok) throw new Error(r.status+' '+r.statusText);
+        const b=await r.arrayBuffer();
+        if(!b.byteLength) throw new Error('empty response');
+        return b;
+      }catch(e){last=e;}
+    }
+    throw new Error('Failed to load resources.zip.part'+n+(last?' ('+last.message+')':''));
+  }
+  async function loadParts(){
+    const buffers=new Array(PARTS), queue=[...Array(PARTS)].map((_,i)=>i+1);
+    let done=0;
+    const worker=async()=>{while(queue.length){const n=queue.shift();buffers[n-1]=await fetchOne(n);done++;progress('LOADING GAME DATA PART '+done+'/'+PARTS,5+(done/PARTS)*50);}};
+    await Promise.all([worker(),worker(),worker(),worker()]);
+    progress('ASSEMBLING GAME DATA...',58);
+    return new Blob(buffers,{type:'application/zip'});
+  }
+  const map=new Map();
+  function installIntercept(){
+    const of=window.fetch;
+    window.fetch=async function(input,init){
+      if(typeof input==='string'&&input.startsWith('resources/')){const k=input.split('/').pop();if(map.has(k))return of(map.get(k),init)}
+      return of(input,init);
+    };
+    const oo=XMLHttpRequest.prototype.open;
+    XMLHttpRequest.prototype.open=function(method,url){
+      if(typeof url==='string'&&url.startsWith('resources/')){const k=url.split('/').pop();if(map.has(k))url=map.get(k)}
+      return oo.apply(this,arguments);
+    };
+    for(const Tag of [HTMLImageElement,HTMLAudioElement,HTMLVideoElement]){
+      const d=Object.getOwnPropertyDescriptor(Tag.prototype,'src');
+      if(d&&d.set)Object.defineProperty(Tag.prototype,'src',{configurable:true,enumerable:true,get:d.get,set:function(v){if(typeof v==='string'&&v.startsWith('resources/')){const k=v.split('/').pop();if(map.has(k))v=map.get(k)}d.set.call(this,v)}});
+    }
+  }
+  async function extract(blob){
+    progress('READING ARCHIVE...',60);
+    const zip=await JSZip.loadAsync(await blob.arrayBuffer());
+    const files=Object.keys(zip.files).filter(n=>!zip.files[n].dir);
+    let done=0;
+    const worker=async()=>{while(true){const i=done++;if(i>=files.length)return;const name=files[i];const b=await zip.files[name].async('blob');map.set(name,URL.createObjectURL(b));progress('UNPACKING '+name.toUpperCase(),60+(done/files.length)*35)}};
+    await Promise.all([worker(),worker(),worker(),worker()]);
+  }
+  async function start(){
+    try{
+      progress('LOADING GAME DATA...',2);
+      const blob=await loadParts();
+      await extract(blob);
+      installIntercept();
+      progress('STARTING ENGINE...',98);
+      const s=document.createElement('script');
+      s.src=CDN+'/src/Runtime.js';
+      s.onerror=()=>{s.src=RAW+'/src/Runtime.js'};
+      s.onload=()=>{progress('READY',100);$('MMFCanvas').style.display='block';$('selection').style.display='none';document.title="Five Nights at Freddy's: Sister Location";new Runtime('MMFCanvas',RUNTIME)};
+      document.head.appendChild(s);
+    }catch(e){console.error(e);progress('ERROR: '+e.message,0)}
+  }
+  start();
+})();
+</script>
+</body>
+</html>

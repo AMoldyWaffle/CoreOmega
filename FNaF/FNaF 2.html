@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>Five Nights at Freddy's 2</title>
+<style>
+html{height:100%;overflow:hidden;user-select:none}body{margin:0;height:100%;background:#000;display:flex;align-items:center;justify-content:center}canvas{display:none;user-select:none}.selection{width:100%;height:100%;display:flex;align-items:center;justify-content:center}.loader{width:60vw;max-width:600px;color:#fff;font:lighter 14px monospace;text-align:center}.loader h1{font-size:2em;margin:0 0 1em}.bar-track{height:1.2em;border:1px solid #fff;padding:2px;box-sizing:border-box}.bar-fill{height:100%;width:0;background:#fff;transition:width .15s linear}.loader h2{font-size:.9em;font-weight:lighter;margin:1em 0 0;word-break:break-word}
+</style>
+</head>
+<body>
+<canvas id="MMFCanvas" width="1280" height="720">Your browser does not support Canvas.</canvas>
+<div class="selection" id="selection"><div class="loader"><h1 id="percentage">0%</h1><div class="bar-track"><div class="bar-fill" id="bar"></div></div><h2 id="stage">STARTING UP...</h2></div></div>
+<script>
+const ROOT='https://cdn.jsdelivr.net/gh/AMoldyWaffle/Five-Nights-at-Frebby@main/FNaF2';
+const PARTS=20;
+const gametitle=document.title;
+const runtimecanvas='resources/FiveNights2NOHACKS.cch';
+const map=new Map();
+function progress(text,p){p=Math.max(0,Math.min(100,Math.floor(p)));document.title=p+'% '+gametitle;document.getElementById('percentage').textContent=p+'%';document.getElementById('bar').style.width=p+'%';document.getElementById('stage').textContent=text}
+function fail(e){console.error(e);progress('ERROR: '+(e&&e.message?e.message:String(e)),0)}
+window.addEventListener('scroll',e=>{window.scrollTo(0,0);e.preventDefault()},{passive:false});
+window.addEventListener('touchmove',e=>e.preventDefault(),{passive:false});
+const pressedKeys={};document.addEventListener('keydown',e=>{pressedKeys[e.key]=true;if(pressedKeys['-']&&pressedKeys['=']){const c=document.querySelector('canvas');if(c.requestFullscreen)c.requestFullscreen();delete pressedKeys[e.key]}});document.addEventListener('keyup',e=>delete pressedKeys[e.key]);
+
+function loadScript(url,label){return new Promise((resolve,reject)=>{const s=document.createElement('script');s.src=url;s.async=true;s.onload=()=>resolve();s.onerror=()=>reject(new Error('Could not load '+label+' from CDN'));document.head.appendChild(s)})}
+
+async function loadJSZip(){
+ progress('LOADING ZIP ENGINE...',3);
+ if(window.JSZip)return;
+ try{await loadScript('https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js','JSZip')}catch(e){throw new Error('JSZip failed to load. '+e.message)}
+ if(!window.JSZip)throw new Error('JSZip loaded but is unavailable');
+}
+
+async function loadParts(){
+ window.__FNAF_PARTS=window.__FNAF_PARTS||[];
+ const jobs=[];
+ for(let i=1;i<=PARTS;i++){
+   jobs.push(loadScript(ROOT+'/src/data/part'+i+'.js','src/data/part'+i+'.js').then(()=>{
+     if(typeof window.__FNAF_PARTS[i-1]!=='string'){
+       throw new Error('src/data/part'+i+'.js loaded, but did not create __FNAF_PARTS['+(i-1)+']');
+     }
+     const done=jobs.filter(x=>x.done).length;
+     progress('LOADED GAME DATA PART '+i+'/'+PARTS+'...',5+Math.min(30,(done/PARTS)*30));
+   }));
+   jobs[jobs.length-1].done=false;
+ }
+ // Download all 20 parts concurrently instead of waiting for each one.
+ await Promise.all(jobs.map((p,i)=>p.then(v=>{jobs[i].done=true;return v})));
+ const arrays=[];let total=0;
+ for(let i=0;i<PARTS;i++){
+   const b64=window.__FNAF_PARTS[i];
+   let binary;
+   try{binary=atob(b64)}catch(e){throw new Error('Game data part '+(i+1)+' is not valid base64')}
+   const bytes=new Uint8Array(binary.length);
+   for(let j=0;j<binary.length;j++)bytes[j]=binary.charCodeAt(j);
+   arrays.push(bytes);total+=bytes.length;
+   window.__FNAF_PARTS[i]=null;
+ }
+ const all=new Uint8Array(total);let off=0;
+ for(const a of arrays){all.set(a,off);off+=a.length}
+ return all.buffer;
+}
+
+function installInterceptors(){
+ const nativeFetch=window.fetch.bind(window);
+ window.fetch=async function(input,init){
+   const raw=typeof input==='string'?input:(input&&input.url)||'';
+   const clean=raw.split('?')[0].split('#')[0];
+   if(clean.startsWith('resources/')){
+     const name=clean.substring(clean.lastIndexOf('/')+1);
+     if(map.has(clean))return nativeFetch(map.get(clean),init);
+     if(map.has(name))return nativeFetch(map.get(name),init);
+   }
+   return nativeFetch(input,init);
+ };
+ const nativeOpen=XMLHttpRequest.prototype.open;
+ XMLHttpRequest.prototype.open=function(method,url,...rest){
+   let u=url;
+   if(typeof u==='string'){
+     const clean=u.split('?')[0].split('#')[0];
+     if(clean.startsWith('resources/')){
+       const name=clean.substring(clean.lastIndexOf('/')+1);
+       if(map.has(clean))u=map.get(clean);else if(map.has(name))u=map.get(name);
+     }
+   }
+   return nativeOpen.call(this,method,u,...rest);
+ };
+ for(const Tag of [HTMLImageElement,HTMLAudioElement,HTMLVideoElement]){
+   const d=Object.getOwnPropertyDescriptor(Tag.prototype,'src');
+   if(!d||!d.set)continue;
+   Object.defineProperty(Tag.prototype,'src',{configurable:true,enumerable:d.enumerable,get:d.get,set:function(v){
+     if(typeof v==='string'){
+       const clean=v.split('?')[0].split('#')[0],name=clean.substring(clean.lastIndexOf('/')+1);
+       if(map.has(clean))v=map.get(clean);else if(map.has(name))v=map.get(name);
+     }
+     d.set.call(this,v);
+   }});
+ }
+}
+
+async function extract(buffer){
+ progress('READING ARCHIVE...',42);
+ const zip=await JSZip.loadAsync(buffer);
+ const names=Object.keys(zip.files).filter(n=>!zip.files[n].dir);
+ if(!names.length)throw new Error('The assembled resources ZIP contains no files');
+ for(let i=0;i<names.length;i++){
+   const name=names[i];
+   const blob=await zip.files[name].async('blob');
+   const url=URL.createObjectURL(blob);
+   map.set(name,url);map.set(name.replace(/^.*[\\/]/,''),url);
+   progress('UNPACKING '+name.toUpperCase()+'...',43+(i+1)/names.length*52);
+ }
+}
+
+async function start(){
+ progress('STARTING UP...',0);
+ // JSZip and the game-data downloads happen at the same time.
+ const partsPromise=loadParts();
+ await loadJSZip();
+ const buffer=await partsPromise;
+ await extract(buffer);
+ installInterceptors();
+ progress('LOADING ENGINE...',97);
+ await loadScript(ROOT+'/src/Runtime.js','Runtime.js');
+ if(typeof Runtime!=='function')throw new Error('Runtime.js loaded, but Runtime is unavailable');
+ progress('READY',100);
+ document.getElementById('MMFCanvas').style.display='block';
+ document.getElementById('selection').style.display='none';
+ document.title=gametitle;
+ new Runtime('MMFCanvas',runtimecanvas);
+}
+window.addEventListener('load',()=>start().catch(fail));
+</script>
+</body>
+</html>
