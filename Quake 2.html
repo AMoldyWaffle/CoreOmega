@@ -1,3 +1,4 @@
+```html
 <!DOCTYPE html>
 <html>
 <head>
@@ -5,90 +6,391 @@
 <style>
 html, body { margin:0; padding:0; width:100%; height:100%; background:black; }
 #game { width:100vw; height:100vh; }
+
 #fullscreen-btn {
   position: fixed; top: 10px; right: 10px; z-index: 9999;
   background: rgba(0,0,0,0.6); color: white;
-  border: 1px solid rgba(255,255,255,0.4); border-radius: 6px;
-  padding: 6px 12px; font-size: 13px; cursor: pointer; font-family: sans-serif;
+  border: 1px solid rgba(255,255,255,0.4);
+  border-radius: 6px;
+  padding: 6px 12px;
+  font-size: 13px;
+  cursor: pointer;
+  font-family: sans-serif;
 }
-#fullscreen-btn:hover { background: rgba(255,255,255,0.2); }
+
+#fullscreen-btn:hover {
+  background: rgba(255,255,255,0.2);
+}
+
 #loading {
-  position: fixed; inset: 0; display: flex; flex-direction: column;
-  align-items: center; justify-content: center; background: black;
-  color: white; font-family: sans-serif; font-size: 16px; z-index: 50;
+  position: fixed;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  background: black;
+  color: white;
+  font-family: sans-serif;
+  font-size: 16px;
+  z-index: 50;
 }
-#loading-bar-bg { width: 300px; height: 10px; background: #333; border-radius: 5px; margin-top: 16px; }
-#loading-bar { height: 10px; width: 0%; background: #4af; border-radius: 5px; transition: width 0.2s; }
-#loading-text { margin-top: 10px; font-size: 13px; color: #888; }
+
+#loading-bar-bg {
+  width: 300px;
+  height: 10px;
+  background: #333;
+  border-radius: 5px;
+  margin-top: 16px;
+}
+
+#loading-bar {
+  height: 10px;
+  width: 0%;
+  background: #4af;
+  border-radius: 5px;
+  transition: width 0.2s;
+}
+
+#loading-text {
+  margin-top: 10px;
+  font-size: 13px;
+  color: #888;
+}
 </style>
 </head>
+
 <body>
+
 <button id="fullscreen-btn" onclick="openFullscreen()">⛶ Fullscreen</button>
+
 <div id="loading">
   <div>Loading Quake II...</div>
-  <div id="loading-bar-bg"><div id="loading-bar"></div></div>
-  <div id="loading-text">Part 1 of 40</div>
+  <div id="loading-bar-bg">
+    <div id="loading-bar"></div>
+  </div>
+  <div id="loading-text">Starting downloads...</div>
 </div>
+
 <div id="game"></div>
+
 <script>
 (function() {
   const highestId = setTimeout(() => {}, 0);
-  for (let i = 0; i < highestId; i++) { clearTimeout(i); clearInterval(i); }
-  if (window._lastBlobUrl) { URL.revokeObjectURL(window._lastBlobUrl); window._lastBlobUrl = null; }
+
+  for (let i = 0; i < highestId; i++) {
+    clearTimeout(i);
+    clearInterval(i);
+  }
+
+  if (window._lastBlobUrl) {
+    URL.revokeObjectURL(window._lastBlobUrl);
+    window._lastBlobUrl = null;
+  }
+
   if (window.gc) window.gc();
-  if (window.performance && window.performance.clearResourceTimings) window.performance.clearResourceTimings();
+
+  if (
+    window.performance &&
+    window.performance.clearResourceTimings
+  ) {
+    window.performance.clearResourceTimings();
+  }
 })();
 
-if (window.self === window.top) document.getElementById("fullscreen-btn").style.display = "none";
-const BASE = "https://cdn.jsdelivr.net/gh/AMoldyWaffle/PS2-HTML-ORYX@main/Quake%20II%20(USA)/Quake%20II%20(USA)%20(Track%201)_part_";
+if (window.self === window.top) {
+  document.getElementById("fullscreen-btn").style.display = "none";
+}
+
+const BASE =
+  "https://cdn.jsdelivr.net/gh/AMoldyWaffle/PS2-HTML-ORYX@main/Quake%20II%20(USA)/Quake%20II%20(USA)%20(Track%201)_part_";
+
 const PARTS = [];
-for (let i = 1; i <= 40; i++) PARTS.push(BASE + i.toString().padStart(2, "0") + ".bin");
+
+for (let i = 1; i <= 40; i++) {
+  PARTS.push(
+    BASE +
+    i.toString().padStart(2, "0") +
+    ".bin"
+  );
+}
+
+
+/*
+ * Download one part.
+ *
+ * onProgress receives:
+ *   received bytes
+ *   total bytes
+ */
 async function fetchPart(url, onProgress) {
   const response = await fetch(url);
-  const contentLength = response.headers.get("Content-Length");
-  const total = contentLength ? parseInt(contentLength) : 0;
+
+  if (!response.ok) {
+    throw new Error(
+      "HTTP " + response.status + " while loading " + url
+    );
+  }
+
+  const contentLength =
+    response.headers.get("Content-Length");
+
+  const total = contentLength
+    ? parseInt(contentLength, 10)
+    : 0;
+
+  if (!response.body) {
+    throw new Error("Streaming downloads are not supported.");
+  }
+
   const reader = response.body.getReader();
-  const chunks = []; let received = 0;
+
+  const chunks = [];
+  let received = 0;
+
   while (true) {
     const { done, value } = await reader.read();
+
     if (done) break;
-    chunks.push(value); received += value.length;
-    if (total) onProgress(received / total);
+
+    chunks.push(value);
+    received += value.length;
+
+    onProgress(received, total);
   }
-  const result = new Uint8Array(received); let offset = 0;
-  for (const chunk of chunks) { result.set(chunk, offset); offset += chunk.length; }
+
+  const result = new Uint8Array(received);
+
+  let offset = 0;
+
+  for (const chunk of chunks) {
+    result.set(chunk, offset);
+    offset += chunk.length;
+  }
+
   return result;
 }
+
+
+/*
+ * Download ALL 40 parts simultaneously.
+ */
 async function loadROM() {
-  const bar = document.getElementById("loading-bar");
-  const text = document.getElementById("loading-text");
+  const bar =
+    document.getElementById("loading-bar");
+
+  const text =
+    document.getElementById("loading-text");
+
   try {
-    const buffers = [];
-    for (let i = 0; i < PARTS.length; i++) {
-      text.textContent = `Part ${i + 1} of ${PARTS.length}`;
-      buffers.push(await fetchPart(PARTS[i], p => { bar.style.width = ((i + p) / PARTS.length * 100) + "%"; }));
-    }
+
+    /*
+     * Progress for every individual part.
+     */
+    const progress = PARTS.map(() => ({
+      received: 0,
+      total: 0
+    }));
+
+
+    /*
+     * Start every download immediately.
+     *
+     * Promise.all() waits for all of them,
+     * but they are started in parallel.
+     */
+    const downloads = PARTS.map((url, index) => {
+
+      return fetchPart(
+        url,
+
+        (received, total) => {
+
+          progress[index].received = received;
+          progress[index].total = total;
+
+
+          /*
+           * Calculate combined progress.
+           *
+           * If Content-Length is available, use the
+           * actual downloaded byte totals.
+           */
+          let receivedTotal = 0;
+          let totalTotal = 0;
+          let knownTotals = true;
+
+          for (const p of progress) {
+
+            receivedTotal += p.received;
+
+            if (p.total > 0) {
+              totalTotal += p.total;
+            } else {
+              knownTotals = false;
+            }
+          }
+
+
+          if (knownTotals && totalTotal > 0) {
+
+            const percent =
+              (receivedTotal / totalTotal) * 100;
+
+            bar.style.width =
+              Math.min(100, percent) + "%";
+
+            text.textContent =
+              "Downloading ROM... " +
+              Math.round(percent) +
+              "%";
+
+          } else {
+
+            /*
+             * Fallback when the server does not expose
+             * Content-Length.
+             */
+            const completed =
+              progress.filter(
+                p => p.total > 0 &&
+                     p.received >= p.total
+              ).length;
+
+            text.textContent =
+              "Downloading... " +
+              completed +
+              " / " +
+              PARTS.length +
+              " parts";
+          }
+        }
+      );
+    });
+
+
+    /*
+     * Wait for all 40 downloads.
+     *
+     * The array remains in the correct order because
+     * Promise.all() preserves the order of PARTS.
+     */
+    const buffers = await Promise.all(downloads);
+
+
+    bar.style.width = "100%";
     text.textContent = "Assembling ROM...";
-    const totalLen = buffers.reduce((s, b) => s + b.length, 0);
-    const combined = new Uint8Array(totalLen); let offset = 0;
-    for (const buf of buffers) { combined.set(buf, offset); offset += buf.length; }
-    const blob = new Blob([combined], { type: "application/octet-stream" });
-    window._lastBlobUrl = URL.createObjectURL(blob);
+
+
+    /*
+     * Calculate final ROM size.
+     */
+    const totalLen = buffers.reduce(
+      (sum, buffer) => sum + buffer.length,
+      0
+    );
+
+
+    /*
+     * Combine the 40 pieces in order.
+     */
+    const combined =
+      new Uint8Array(totalLen);
+
+    let offset = 0;
+
+    for (const buf of buffers) {
+
+      combined.set(buf, offset);
+
+      offset += buf.length;
+    }
+
+
+    text.textContent = "Starting emulator...";
+
+
+    /*
+     * Create ROM Blob.
+     */
+    const blob = new Blob(
+      [combined],
+      {
+        type: "application/octet-stream"
+      }
+    );
+
+
+    window._lastBlobUrl =
+      URL.createObjectURL(blob);
+
+
+    /*
+     * Release the individual part buffers.
+     */
     buffers.length = 0;
-    combined.fill(0);
-    document.getElementById("loading").style.display = "none";
-    window.EJS_player = "#game"; window.EJS_core = "psx";
-    window.EJS_startOnLoaded = true; window.EJS_gameUrl = window._lastBlobUrl;
-    window.EJS_pathtodata = "https://cdn.jsdelivr.net/gh/AMoldyWaffle/RetroEmulator@main/";
-    const script = document.createElement("script");
-    script.src = window.EJS_pathtodata + "loader.js";
+
+
+    /*
+     * Start EmulatorJS.
+     */
+    window.EJS_player = "#game";
+    window.EJS_core = "psx";
+    window.EJS_startOnLoaded = true;
+    window.EJS_gameUrl = window._lastBlobUrl;
+
+    window.EJS_pathtodata =
+      "https://cdn.jsdelivr.net/gh/AMoldyWaffle/RetroEmulator@main/";
+
+
+    const script =
+      document.createElement("script");
+
+    script.src =
+      window.EJS_pathtodata + "loader.js";
+
     document.body.appendChild(script);
-  } catch (e) { document.getElementById("loading").innerHTML = "Failed to load ROM: " + e.message; }
+
+
+    /*
+     * Hide loading screen after the emulator
+     * has been initialized.
+     */
+    setTimeout(() => {
+      document.getElementById("loading").style.display =
+        "none";
+    }, 500);
+
+
+  } catch (e) {
+
+    console.error(e);
+
+    document.getElementById("loading").innerHTML =
+      "Failed to load ROM:<br><br>" +
+      e.message;
+  }
 }
+
+
 loadROM();
+
+
 function openFullscreen() {
-  window.open(URL.createObjectURL(new Blob([document.documentElement.outerHTML], {type: "text/html"})), "_blank");
+
+  const blob =
+    new Blob(
+      [document.documentElement.outerHTML],
+      { type: "text/html" }
+    );
+
+  window.open(
+    URL.createObjectURL(blob),
+    "_blank"
+  );
 }
 </script>
+
 </body>
 </html>
+```
